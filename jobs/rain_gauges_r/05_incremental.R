@@ -25,11 +25,13 @@ cfg <- load_config(root)
 
 # COMMAND ----------
 
+workers <- if (is.null(cfg$n_workers)) 1 else cfg$n_workers
 local_register <- file.path(cfg$local_dir, "register.csv")
 local_log <- file.path(cfg$local_dir, "incremental_log.csv")
 unlink(c(local_register, local_log))
 log <- run_incremental(cfg$registry_path, cfg$store_root, register_path = local_register,
-                       log_path = local_log, n_workers = cfg$incremental$n_workers)
+                       log_path = local_log,
+                       n_workers = workers)
 merge_csv_to_volume(local_register, cfg$volume_register)
 merge_csv_to_volume(local_log, file.path(cfg$volume_logs, "incremental_log.csv"))
 print(table(log$status))

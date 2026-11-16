@@ -1,11 +1,12 @@
-# Copy to config/config.yml and fill in. config.yml is not committed.
+# Copy this file, fill it in, and point PIPELINES_CONFIG at the copy (for example on the
+# volume), or save it as config/config.yml, which git ignores. Never commit the copy.
 
-# The reach.io store: a folder of its own inside a Unity Catalog volume. Unrestricted data only;
+# The store: a folder of its own inside a Unity Catalog volume. Unrestricted data only;
 # H19, FEH SAAR and MOSES go to a restricted volume.
 store_root: /Volumes/<catalog>/<schema>/<volume>/hydrometric
 
-# Driver-local working folder for the register and logs (volumes refuse appends).
-local_dir: /local_disk0/analytics_pipelines
+# Optional: who the register records as receiving the data (default: the run's user).
+received_by: ""
 
 # Optional lookup giving each WISKI ID a catchment. Leave lookup_csv empty to skip it.
 lookup_csv: ""
@@ -20,8 +21,12 @@ trial:
 backfill:
   start_date: "2000-01-01"
   end_date: "2026-01-01"        # exclusive
-  chunk_size: 50                # gauges per chunk; the register and log reach the volume after each
-  n_workers: 1                  # the EA asks for one request at a time; reach.io allows up to 4
+  chunk_size: 50                # gauges per chunk; progress is saved after each
 
 incremental:
-  n_workers: 1
+  default_start: "2000-01-01"   # for a gauge with nothing stored yet
+
+# R jobs only (jobs/rain_gauges_r): driver-local folder for reach.io's appended files, and
+# the number of workers reach.io may use (the EA asks for one request at a time).
+local_dir: /local_disk0/analytics_pipelines
+n_workers: 1

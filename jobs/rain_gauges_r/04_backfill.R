@@ -26,6 +26,7 @@ cfg <- load_config(root)
 
 # COMMAND ----------
 
+workers <- if (is.null(cfg$n_workers)) 1 else cfg$n_workers
 registry <- data.table::as.data.table(arrow::read_parquet(cfg$registry_path))
 todo <- gauges_to_do(registry)
 message(nrow(todo), " of ", nrow(registry), " gauges still to do")
@@ -38,7 +39,8 @@ for (ids in chunks(todo$gauge_id, cfg$backfill$chunk_size)) {
   unlink(c(local_register, local_log))
   log <- run_backfill(chunk_registry, cfg$store_root, cfg$backfill$start_date,
                       cfg$backfill$end_date, register_path = local_register,
-                      log_path = local_log, n_workers = cfg$backfill$n_workers)
+                      log_path = local_log,
+                      n_workers = workers)
   # Register first: once a gauge is marked done, its files must already be registered
   merge_csv_to_volume(local_register, cfg$volume_register)
   merge_csv_to_volume(local_log, file.path(cfg$volume_logs, "backfill_log.csv"))
