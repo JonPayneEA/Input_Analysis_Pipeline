@@ -2,8 +2,8 @@
 # Tool:         EA Hydrology API client
 # Description:  Lists 15-minute rainfall measures and fetches readings in annual chunks, one
 #               request at a time as the EA asks, with retries for passing failures
-# Flode Module: analytics_pipelines_r
-# Author:       analytics_pipelines_r contributors
+# Flode Module: Input_Analysis_Pipeline
+# Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-16
 # Tier:         1
 # Inputs:       https://environment.data.gov.uk/hydrology (Open Government Licence v3.0)

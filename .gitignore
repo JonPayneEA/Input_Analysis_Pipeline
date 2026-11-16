@@ -1,7 +1,4 @@
 config/config.yml
-.Rhistory
-.RData
-.Rproj.user/
 __pycache__/
 .pytest_cache/
 .ruff_cache/

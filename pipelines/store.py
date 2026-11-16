@@ -3,8 +3,8 @@
 # Description:  Writes and reads reach.io's Bronze layout: dataset IDs, year-partitioned
 #               Parquet, the provenance register and the gauge registry, every file written
 #               whole so a Unity Catalog volume never sees an append
-# Flode Module: analytics_pipelines_r
-# Author:       analytics_pipelines_r contributors
+# Flode Module: Input_Analysis_Pipeline
+# Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-16
 # Tier:         1
 # Inputs:       Readings as pandas data frames; the store root

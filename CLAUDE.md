@@ -1,9 +1,9 @@
-# analytics_pipelines_r: Claude Code guide
+# Input_Analysis_Pipeline: Claude Code guide
 
 Databricks jobs for the Flood Forecast Modelling team. The jobs are Python notebooks, since the
 workspace's shared clusters allow only Python and SQL. They write reach.io's Bronze layout
 exactly, so R reads the store with reach.io; any change to the layout must match reach.io's
-`schema.R` and `read_bronze.R`. The R versions in `jobs/rain_gauges_r/` call reach.io itself.
+`schema.R` and `read_bronze.R`.
 
 ## Conventions
 
@@ -22,6 +22,6 @@ exactly, so R reads the store with reach.io; any change to the layout must match
 
 ## Testing
 
-`python -m pytest` for Python and `testthat::test_dir("tests/testthat")` for R. Tests never
+`python -m pytest` and `ruff check .`. Tests never
 touch the network: use the fake API in `tests/python/conftest.py`. Expected values come from
 hand counts stated in the test. Every bug fix gets a regression test that fails on the old code.

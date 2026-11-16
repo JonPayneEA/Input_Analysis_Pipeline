@@ -26,7 +26,3 @@ backfill:
 incremental:
   default_start: "2000-01-01"   # for a gauge with nothing stored yet
 
-# R jobs only (jobs/rain_gauges_r): driver-local folder for reach.io's appended files, and
-# the number of workers reach.io may use (the EA asks for one request at a time).
-local_dir: /local_disk0/analytics_pipelines
-n_workers: 1

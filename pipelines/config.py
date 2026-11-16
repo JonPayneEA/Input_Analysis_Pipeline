@@ -2,8 +2,8 @@
 # Tool:         pipeline configuration
 # Description:  Finds the repository root and reads the YAML configuration, adding the
 #               store's derived paths
-# Flode Module: analytics_pipelines_r
-# Author:       analytics_pipelines_r contributors
+# Flode Module: Input_Analysis_Pipeline
+# Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-16
 # Tier:         1
 # Inputs:       The file PIPELINES_CONFIG names, else config/config.yml

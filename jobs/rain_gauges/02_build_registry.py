@@ -3,8 +3,8 @@
 # Tool:         02 build the registry
 # Description:  Lists every 15-minute rain gauge on the Hydrology API and writes the
 #               registry, keeping the progress of gauges already registered
-# Flode Module: analytics_pipelines_r
-# Author:       analytics_pipelines_r contributors
+# Flode Module: Input_Analysis_Pipeline
+# Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-16
 # Tier:         1
 # Inputs:       The Hydrology API; an optional lookup CSV for catchments
