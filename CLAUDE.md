@@ -1,23 +1,27 @@
 # analytics_pipelines_r: Claude Code guide
 
-Databricks jobs in R that run the reach.* packages. The packages hold the logic; this
-repository holds configuration, job scripts and small helpers only. If a job needs new
-behaviour, add it to the package that owns it (fetching `reach.io`, QC `reach.validate`, forcing
-`reach.forcing`) and call it from here.
+Databricks jobs for the Flood Forecast Modelling team. The jobs are Python notebooks, since the
+workspace's shared clusters allow only Python and SQL. They write reach.io's Bronze layout
+exactly, so R reads the store with reach.io; any change to the layout must match reach.io's
+`schema.R` and `read_bronze.R`. The R versions in `jobs/rain_gauges_r/` call reach.io itself.
 
 ## Conventions
 
-- Every R file starts with the Flode header block (Tool, Description, Flode Module, Author,
-  Created, Tier, Inputs, Outputs, Dependencies). Job files put `# Databricks notebook source`
-  above it and separate cells with `# COMMAND ----------`.
+- Every source file starts with the Flode header block (Tool, Description, Flode Module,
+  Author, Created, Tier, Inputs, Outputs, Dependencies). Notebooks put
+  `# Databricks notebook source` above it and separate cells with `# COMMAND ----------`.
+- Notebooks import only from `pipelines/`; logic goes there, with tests.
+- Times in UTC. Depths in mm per 15 minutes, as the EA supplies them.
+- The EA asks for one request at a time: no parallel requests to the Hydrology API.
 - No workspace names, catalog paths or credentials in committed files: they go in the config,
   which is not committed. `config/config.example.yml` shows the keys with placeholders.
-- Volumes may refuse appends: write anything appended to `local_dir` and copy it with
-  `merge_csv_to_volume()`.
+- Files on a volume are written whole, via a local temporary file; never appended.
 - Restricted data (H19, FEH SAAR, MOSES) never on an unrestricted volume, and never committed.
-- Lines up to 100 characters. UK English, plain prose: no em dashes, no exclamation marks.
+- Lines up to 100 characters; `ruff check .` clean. UK English, plain prose: no em dashes, no
+  exclamation marks.
 
 ## Testing
 
-`testthat::test_dir("tests/testthat")`, edition 3. Expected values come from hand counts stated
-in the test. Every bug fix gets a regression test that fails on the old code.
+`python -m pytest` for Python and `testthat::test_dir("tests/testthat")` for R. Tests never
+touch the network: use the fake API in `tests/python/conftest.py`. Expected values come from
+hand counts stated in the test. Every bug fix gets a regression test that fails on the old code.
