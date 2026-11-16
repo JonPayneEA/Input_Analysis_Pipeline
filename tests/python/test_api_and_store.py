@@ -26,6 +26,10 @@ def test_date_chunks_are_annual_with_an_exclusive_end():
         ("2020-01-01", "2021-01-01"), ("2021-01-01", "2022-01-01"),
         ("2022-01-01", "2022-06-01")]
     assert api.date_chunks("2020-01-01", "2020-01-01") == []
+    # Ten-year chunks: 1966 to 1976, 1976 to 1986, and the rest to the end
+    assert api.date_chunks("1966-01-01", "1990-03-01", years=10) == [
+        ("1966-01-01", "1976-01-01"), ("1976-01-01", "1986-01-01"),
+        ("1986-01-01", "1990-03-01")]
 
 
 def test_timestamps_drop_the_offset_without_converting():

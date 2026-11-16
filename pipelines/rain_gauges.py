@@ -85,7 +85,7 @@ def record_window(bounds, start_date, end_date):
 
 
 def fetch_and_store(gauge, root, start_date, end_date, method, session=None, after=None,
-                    sleep=time.sleep, received_by=None, trim=False):
+                    sleep=time.sleep, received_by=None, trim=False, years=1):
     """Fetches one gauge and writes its Bronze files. Returns (rows stored, register rows).
     `after` keeps only readings later than that timestamp (the incremental watermark).
     `trim` first asks for the gauge's first and last readings and fetches only the years
@@ -97,7 +97,7 @@ def fetch_and_store(gauge, root, start_date, end_date, method, session=None, aft
         if window is None:
             return 0, []
         start_date, end_date = window
-    readings = api.fetch_series(notation, start_date, end_date, session, sleep)
+    readings = api.fetch_series(notation, start_date, end_date, session, sleep, years)
     if not len(readings):
         return 0, []
     ds_id = store.dataset_id(gauge["gauge_id"])
@@ -133,14 +133,18 @@ def run_backfill(cfg, start_date, end_date, registry=None, log_name="backfill_lo
     full = registry if registry is not None else store.read_registry(cfg["registry_path"])
     todo = to_do(full)
     size = chunk_size or cfg["backfill"].get("chunk_size", 50)
+    kw.setdefault("years", cfg["backfill"].get("years_per_request", 10))
     print(f"{len(todo)} of {len(full)} gauges to do")
     log_all = []
     for i in range(0, len(todo), size):
         log, prov = [], []
-        for gauge in todo.iloc[i:i + size].to_dict("records"):
+        for k, gauge in enumerate(todo.iloc[i:i + size].to_dict("records"), start=i + 1):
             r, p = backfill_one(gauge, cfg["store_root"], start_date, end_date, **kw)
             log.append(r)
             prov.extend(p)
+            print(f"[{k}/{len(todo)}] {r['gauge_id']}: {r['status']}, {r['rows']:,} rows, "
+                  f"{r['elapsed_s']:.0f} s" + (f" ({r['error']})" if r["error"] else ""),
+                  flush=True)
         # Register first: a gauge marked done must already have its files registered
         store.add_rows_to_csv(prov, cfg["register_path"], store.REGISTER_COLUMNS)
         store.add_rows_to_csv(log, f"{cfg['logs_dir']}/{log_name}", BACKFILL_LOG)
