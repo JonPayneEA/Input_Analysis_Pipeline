@@ -73,12 +73,31 @@ def _notation(gauge, session):
     return notation
 
 
+def record_window(bounds, start_date, end_date):
+    """The part of [start_date, end_date) the gauge has readings in, as ISO dates, or None.
+    `bounds` are the dates of its first and last readings; the end stays exclusive."""
+    first, last = bounds
+    if first is None or last is None:
+        return None
+    start = max(date.fromisoformat(start_date), first)
+    end = min(date.fromisoformat(end_date), last + timedelta(days=1))
+    return (start.isoformat(), end.isoformat()) if start < end else None
+
+
 def fetch_and_store(gauge, root, start_date, end_date, method, session=None, after=None,
-                    sleep=time.sleep, received_by=None):
+                    sleep=time.sleep, received_by=None, trim=False):
     """Fetches one gauge and writes its Bronze files. Returns (rows stored, register rows).
-    `after` keeps only readings later than that timestamp (the incremental watermark)."""
-    readings = api.fetch_series(_notation(gauge, session), start_date, end_date, session,
-                                sleep)
+    `after` keeps only readings later than that timestamp (the incremental watermark).
+    `trim` first asks for the gauge's first and last readings and fetches only the years
+    between, so start_date can be early without requesting empty years."""
+    notation = _notation(gauge, session)
+    if trim:
+        window = record_window(api.reading_bounds(notation, session, sleep), start_date,
+                               end_date)
+        if window is None:
+            return 0, []
+        start_date, end_date = window
+    readings = api.fetch_series(notation, start_date, end_date, session, sleep)
     if not len(readings):
         return 0, []
     ds_id = store.dataset_id(gauge["gauge_id"])
@@ -100,7 +119,7 @@ def backfill_one(gauge, root, start_date, end_date, **kw):
         return {"gauge_id": gauge["gauge_id"], "data_type": "rainfall", "status": status,
                 "rows": rows, "elapsed_s": round(time.monotonic() - t0, 2), "error": error}
     try:
-        n, prov = fetch_and_store(gauge, root, start_date, end_date, "HDE", **kw)
+        n, prov = fetch_and_store(gauge, root, start_date, end_date, "HDE", trim=True, **kw)
         return (row("SUCCESS", n), prov) if n else (row("EMPTY"), [])
     except Exception as e:  # noqa: BLE001 - logged as FAILED and retried next run
         return row("FAILED", error=str(e)), []
@@ -149,8 +168,9 @@ def incremental_one(gauge, root, end_date, default_start, run_at, **kw):
         start = default_start if hwm is None else hwm.date().isoformat()
         if hwm is not None and hwm.date() >= date.fromisoformat(end_date):
             return row("NO_NEW_DATA"), []
+        # A gauge with nothing stored yet starts from its own first reading
         n, prov = fetch_and_store(gauge, root, start, end_date, "HDE incremental",
-                                  after=hwm, **kw)
+                                  after=hwm, trim=hwm is None, **kw)
         if n:
             return row("SUCCESS", n), prov
         return row("NO_NEW_DATA" if hwm is not None else "EMPTY"), []

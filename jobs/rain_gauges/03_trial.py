@@ -26,6 +26,7 @@ if _root is None:
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
+from pipelines import hydrology_api as api
 from pipelines import rain_gauges, store
 from pipelines.config import load_config
 
@@ -56,8 +57,17 @@ def _years(a, b):
     return (date.fromisoformat(b) - date.fromisoformat(a)).days / 365.25
 
 
+# Each gauge is fetched only over its own record, so scale by the trial gauges' record lengths
 per_gauge_year = elapsed / len(trial) / _years(cfg["trial"]["start_date"],
                                                cfg["trial"]["end_date"])
-years = _years(cfg["backfill"]["start_date"], cfg["backfill"]["end_date"])
-print(f"{per_gauge_year:.1f} s per gauge-year: {len(active)} gauges over {years:.0f} years "
-      f"needs about {per_gauge_year * len(active) * years / 3600:.0f} hours")
+spans = []
+for gauge in trial.to_dict("records"):
+    window = rain_gauges.record_window(api.reading_bounds(gauge["measure_notation"]),
+                                       cfg["backfill"]["start_date"],
+                                       cfg["backfill"]["end_date"])
+    if window:
+        spans.append(_years(*window))
+years = sum(spans) / len(spans) if spans else 0
+print(f"{per_gauge_year:.1f} s per gauge-year; trial gauges' records average {years:.0f} years "
+      f"within the backfill dates; {len(active)} gauges need about "
+      f"{per_gauge_year * len(active) * years / 3600:.0f} hours")

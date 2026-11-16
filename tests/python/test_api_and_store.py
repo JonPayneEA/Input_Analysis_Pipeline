@@ -16,6 +16,9 @@ def test_parse_notation_maps_the_codes():
     n = "0a1b2c3d-1111-2222-3333-444455556666-rainfall-t-900-mm-qualified"
     assert api.parse_notation(n) == ("rainfall", "total", "15min")
     assert api.parse_notation("no-uuid-here") == (None, None, None)
+    # A UUID with a suffix, as 77 real rain measures have
+    suffixed = "34f4e53b-4616-4aaa-b8ad-170c22c808c4_589359-rainfall-t-900-mm-qualified"
+    assert api.parse_notation(suffixed) == ("rainfall", "total", "15min")
 
 
 def test_date_chunks_are_annual_with_an_exclusive_end():

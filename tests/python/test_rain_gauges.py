@@ -89,3 +89,52 @@ def test_incremental_keeps_only_readings_after_the_watermark(tmp_path, no_sleep)
     assert again[0]["status"] == "NO_NEW_DATA"
     series = store.read_series(cfg["store_root"], "G1")
     assert series["value"].tolist() == [0.4, 0.6]
+
+
+def readings_requests(fake):
+    return [p for u, p in fake.calls if u.endswith("/readings.json") and "mineq-date" in p]
+
+
+def test_backfill_fetches_only_the_years_a_gauge_has_readings(tmp_path, no_sleep):
+    # G1 reads from March 1971 to May 1973: from a 1900 floor, three annual requests
+    # (1971, 1972, 1973), not 126
+    cfg = make_cfg(tmp_path)
+    store.write_registry(registry_for(["G1"]), cfg["registry_path"])
+    fake = FakeAPI({"G1": [("1971-03-01T00:00:00", 0.2, "Good"),
+                           ("1973-05-01T09:00:00", 0.4, "Good")]})
+    log = rain_gauges.run_backfill(cfg, "1900-01-01", "2026-01-01", session=fake,
+                                   sleep=no_sleep)
+    assert log[0]["status"] == "SUCCESS" and log[0]["rows"] == 2
+    asked = readings_requests(fake)
+    assert [(p["mineq-date"], p["max-date"]) for p in asked] == [
+        ("1971-03-01", "1972-03-01"), ("1972-03-01", "1973-03-01"),
+        ("1973-03-01", "1973-05-02")]
+
+
+def test_record_window_clips_to_the_floor_and_ceiling():
+    w = rain_gauges.record_window((date(1966, 1, 1), date(2026, 11, 16)), "2000-01-01",
+                                  "2026-01-01")
+    assert w == ("2000-01-01", "2026-01-01")
+    w = rain_gauges.record_window((date(1985, 5, 1), date(2023, 2, 20)), "1900-01-01",
+                                  "2026-01-01")
+    assert w == ("1985-05-01", "2023-02-21")                  # end exclusive: the day after
+    assert rain_gauges.record_window((None, None), "1900-01-01", "2026-01-01") is None
+    assert rain_gauges.record_window((date(2026, 3, 1), date(2026, 9, 1)), "1900-01-01",
+                                     "2026-01-01") is None     # opened after the ceiling
+
+
+def test_a_gauge_with_no_readings_is_empty_without_fetching_years(tmp_path, no_sleep):
+    cfg = make_cfg(tmp_path)
+    store.write_registry(registry_for(["G2"]), cfg["registry_path"])
+    fake = FakeAPI({"G2": []})
+    log = rain_gauges.run_backfill(cfg, "1900-01-01", "2026-01-01", session=fake,
+                                   sleep=no_sleep)
+    assert log[0]["status"] == "EMPTY"
+    assert readings_requests(fake) == []
+
+
+def test_the_station_lookup_reads_measure_ids(no_sleep):
+    # The stations endpoint lists measures by @id only; the 15-minute one must be found
+    from pipelines import hydrology_api as api
+    fake = FakeAPI({"G1": []})
+    assert api.station_rain_measure("G1", fake) == notation("G1")
