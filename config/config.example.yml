@@ -1,0 +1,27 @@
+# Copy to config/config.yml and fill in. config.yml is not committed.
+
+# The reach.io store: a folder of its own inside a Unity Catalog volume. Unrestricted data only;
+# H19, FEH SAAR and MOSES go to a restricted volume.
+store_root: /Volumes/<catalog>/<schema>/<volume>/hydrometric
+
+# Driver-local working folder for the register and logs (volumes refuse appends).
+local_dir: /local_disk0/analytics_pipelines
+
+# Optional lookup giving each WISKI ID a catchment. Leave lookup_csv empty to skip it.
+lookup_csv: ""
+lookup_id_col: ""
+lookup_catchment_col: ""
+
+trial:
+  n_gauges: 3
+  start_date: "2023-01-01"
+  end_date: "2024-01-01"        # exclusive
+
+backfill:
+  start_date: "2000-01-01"
+  end_date: "2026-01-01"        # exclusive
+  chunk_size: 50                # gauges per chunk; the register and log reach the volume after each
+  n_workers: 1                  # the EA asks for one request at a time; reach.io allows up to 4
+
+incremental:
+  n_workers: 1
