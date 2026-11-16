@@ -2,8 +2,8 @@
 # Tool:         rain gauge pipeline
 # Description:  Builds the rain gauge registry, backfills gauges in checkpointed chunks and
 #               keeps them current from each gauge's latest stored timestamp
-# Flode Module: analytics_pipelines_r
-# Author:       analytics_pipelines_r contributors
+# Flode Module: Input_Analysis_Pipeline
+# Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-16
 # Tier:         1
 # Inputs:       The configuration; the EA Hydrology API

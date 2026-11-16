@@ -2,8 +2,8 @@
 # ============================================================
 # Tool:         03 trial
 # Description:  Backfills a few gauges for one year, reads one back and estimates the full run
-# Flode Module: analytics_pipelines_r
-# Author:       analytics_pipelines_r contributors
+# Flode Module: Input_Analysis_Pipeline
+# Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-16
 # Tier:         1
 # Inputs:       The registry

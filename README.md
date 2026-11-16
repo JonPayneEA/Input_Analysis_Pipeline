@@ -1,4 +1,4 @@
-# analytics_pipelines_r
+# Input_Analysis_Pipeline
 
 Databricks jobs for the Flood Forecast Modelling team. The first pipeline downloads the EA's
 15-minute rain gauge records from the Hydrology API into a Bronze store on a Unity Catalog
@@ -6,8 +6,7 @@ volume.
 
 The jobs are written in **Python**, because the workspace's shared clusters allow only
 Python and SQL, and to match the team's other notebooks. They write exactly the layout reach.io
-writes, so the store reads back in R with `reach.io::read_bronze()`. An R version of the same
-jobs, calling reach.io directly, is kept in `jobs/rain_gauges_r/` for a cluster that allows R.
+writes, so the store reads back in R with `reach.io::read_bronze()`.
 
 ## Layout
 
@@ -20,7 +19,6 @@ jobs, calling reach.io directly, is kept in `jobs/rain_gauges_r/` for a cluster 
 | `pipelines/config.py` | Reading the configuration |
 | `config/config.example.yml` | The settings. Copy it; never commit the copy |
 | `tests/python/` | Tests, with a fake API so none touches the network |
-| `jobs/rain_gauges_r/`, `R/`, `tests/testthat/` | The R version, for a cluster that allows R |
 
 ## Setting up in Databricks
 
