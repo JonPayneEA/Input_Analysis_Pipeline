@@ -99,6 +99,7 @@ def test_backfill_fetches_only_the_years_a_gauge_has_readings(tmp_path, no_sleep
     # G1 reads from March 1971 to May 1973: from a 1900 floor, three annual requests
     # (1971, 1972, 1973), not 126
     cfg = make_cfg(tmp_path)
+    cfg["backfill"]["years_per_request"] = 1
     store.write_registry(registry_for(["G1"]), cfg["registry_path"])
     fake = FakeAPI({"G1": [("1971-03-01T00:00:00", 0.2, "Good"),
                            ("1973-05-01T09:00:00", 0.4, "Good")]})
@@ -138,3 +139,20 @@ def test_the_station_lookup_reads_measure_ids(no_sleep):
     from pipelines import hydrology_api as api
     fake = FakeAPI({"G1": []})
     assert api.station_rain_measure("G1", fake) == notation("G1")
+
+
+def test_backfill_asks_for_ten_years_at_a_time_by_default(tmp_path, no_sleep):
+    # G1 reads from March 1971 to May 1993: ten-year requests from its first reading give
+    # 1971-81, 1981-91 and 1991 to the day after its last reading
+    cfg = make_cfg(tmp_path)
+    store.write_registry(registry_for(["G1"]), cfg["registry_path"])
+    fake = FakeAPI({"G1": [("1971-03-01T00:00:00", 0.2, "Good"),
+                           ("1985-07-01T00:00:00", 1.0, "Good"),
+                           ("1993-05-01T09:00:00", 0.4, "Good")]})
+    log = rain_gauges.run_backfill(cfg, "1900-01-01", "2026-01-01", session=fake,
+                                   sleep=no_sleep)
+    assert log[0]["rows"] == 3
+    asked = readings_requests(fake)
+    assert [(p["mineq-date"], p["max-date"]) for p in asked] == [
+        ("1971-03-01", "1981-03-01"), ("1981-03-01", "1991-03-01"),
+        ("1991-03-01", "1993-05-02")]

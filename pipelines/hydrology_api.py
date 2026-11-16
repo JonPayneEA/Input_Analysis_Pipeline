@@ -107,16 +107,17 @@ def station_rain_measure(wiski_id, session=None):
     return None
 
 
-def date_chunks(from_date, to_date):
-    """Annual (start, end) pairs, start inclusive and end exclusive, as make_date_chunks()."""
+def date_chunks(from_date, to_date, years=1):
+    """(start, end) pairs of `years` years each, start inclusive and end exclusive; with
+    years = 1, the annual chunks of reach.io's make_date_chunks()."""
     start, end = date.fromisoformat(str(from_date)), date.fromisoformat(str(to_date))
     out = []
     s = start
     while s < end:
         try:
-            nxt = s.replace(year=s.year + 1)
+            nxt = s.replace(year=s.year + years)
         except ValueError:               # 29 February
-            nxt = s.replace(year=s.year + 1, day=28)
+            nxt = s.replace(year=s.year + years, day=28)
         out.append((s.isoformat(), min(nxt, end).isoformat()))
         s = nxt
     return out
@@ -161,11 +162,16 @@ def reading_bounds(notation, session=None, sleep=time.sleep):
     return tuple(out)
 
 
-def fetch_series(notation, start_date, end_date, session=None, sleep=time.sleep):
-    """The whole series in annual chunks, pausing after every request. Any failed chunk
-    raises after the loop, so a partial series is never stored as if it were whole."""
+def fetch_series(notation, start_date, end_date, session=None, sleep=time.sleep, years=1):
+    """The whole series in chunks of `years` years, pausing after every request. Any failed
+    chunk raises after the loop, so a partial series is never stored as if it were whole.
+
+    Each request costs about a second on top of its data, so longer chunks are faster: in
+    November 2026, 1.2 s per year of 15-minute rain in ten-year requests against 1.8 to 2.4 s
+    in one-year requests, plus the pause. Ten years of 15-minute data is about 350,000 rows,
+    well under the API's limit of 2,000,000."""
     parts, failed = [], []
-    for a, b in date_chunks(start_date, end_date):
+    for a, b in date_chunks(start_date, end_date, years):
         try:
             df = fetch_readings(notation, a, b, session)
             if len(df):

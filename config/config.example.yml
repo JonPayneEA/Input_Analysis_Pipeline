@@ -22,6 +22,7 @@ backfill:
   start_date: "1900-01-01"      # earliest wanted; each gauge starts at its own first reading
   end_date: "2026-01-01"        # exclusive
   chunk_size: 50                # gauges per chunk; progress is saved after each
+  years_per_request: 10         # years of readings per API request; longer is faster
 
 incremental:
   default_start: "1900-01-01"   # for a gauge with nothing stored yet
