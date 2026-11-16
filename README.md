@@ -49,7 +49,13 @@ on an unrestricted one; H19, FEH SAAR and MOSES need a restricted volume of thei
 
 **Read the trial before the backfill.** It shows whether the volume accepts the writes and how
 long a gauge-year takes. The EA asks for one request at a time, so the jobs make one request a
-second: about 22,000 annual requests for 900 gauges over 25 years.
+second.
+
+**Each gauge's own record.** The backfill first asks the API for a gauge's first and last
+readings, then fetches only the years between, clipped to the config's `start_date` and
+`end_date`. A `start_date` of 1900 therefore costs nothing for a gauge that opened in 2010. In
+a sample of 40 gauges in November 2026, records began between 1966 and 2020 (60% before 2000)
+and averaged about 30 years: some 30,000 annual requests for 995 gauges, about 24 hours.
 
 **Stopping and resuming.** After each chunk of `chunk_size` gauges, the backfill saves the
 register, the log and the registry's done flags. A stopped job loses at most one chunk; rerun

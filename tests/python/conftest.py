@@ -36,15 +36,25 @@ class FakeAPI:
 
     def get(self, url, params=None, timeout=None):
         self.calls.append((url, dict(params or {})))
+        if url.endswith("/id/stations.json"):
+            gid = params["wiskiID"]
+            daily = notation(gid).replace("-900-", "-86400-")
+            measures = [{"@id": f"http://x/id/measures/{daily}"},
+                        {"@id": f"http://x/id/measures/{notation(gid)}"}]
+            return Resp({"items": [{"wiskiID": gid, "measures": measures}]})
         if url.endswith("/id/measures.json"):
             return Resp({"items": [{"notation": notation(g), "station": {"wiskiID": g}}
                                    for g in self.series]})
         gid = url.split("/readings.json")[0].rsplit("-rainfall", 1)[0][-2:]
         if gid in self.broken:
             return Resp({}, 404)
+        rows = sorted(self.series[gid])
+        if "earliest" in params or "latest" in params:
+            pick = rows[:1] if "earliest" in params else rows[-1:]
+            return Resp({"items": [{"dateTime": t, "value": v} for t, v, _ in pick]})
         lo, hi = params["mineq-date"], params["max-date"]
         items = [{"dateTime": t, "value": v, "quality": q}
-                 for t, v, q in self.series[gid] if lo <= t[:10] < hi]
+                 for t, v, q in rows if lo <= t[:10] < hi]
         return Resp({"items": items})
 
 

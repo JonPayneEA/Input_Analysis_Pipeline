@@ -25,8 +25,9 @@ PAUSE_S = 1.0            # reach.io's .pace(): one request at a time, a second a
 TIMEOUT_S = 300
 RETRIES = 3
 
-_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
-                   r"[0-9a-fA-F]{12}-")
+# The parameter, value type and period sit between hyphens after the station part, which is a
+# UUID, sometimes with a suffix such as "_589359" (77 of the 995 rain measures in November 2026)
+_FIELDS = re.compile(r"-([A-Za-z]+)-(m|min|max|i|t)-(\d+)-")
 _TYPES = {"m": "mean", "min": "min", "max": "max", "i": "instantaneous", "t": "total"}
 _PERIODS = {"900": "15min", "86400": "daily"}
 
@@ -50,15 +51,16 @@ def _get(path, params, session=None, sleep=time.sleep):
 
 
 def parse_notation(notation):
-    """Parameter, value type and period from a measure notation, as reach.io parses them.
+    """Parameter, value type and period from a measure notation.
 
-    "<uuid>-rainfall-t-900-mm-qualified" gives ("rainfall", "total", "15min").
+    "<uuid>-rainfall-t-900-mm-qualified" and "<uuid>_589359-rainfall-t-900-mm-qualified" both
+    give ("rainfall", "total", "15min").
     """
-    if not isinstance(notation, str) or not _UUID.match(notation):
+    hit = _FIELDS.search(notation) if isinstance(notation, str) else None
+    if not hit:
         return (None, None, None)
-    parts = _UUID.sub("", notation).split("-")
-    pick = (parts + [None, None, None])[:3]
-    return (pick[0], _TYPES.get(pick[1], pick[1]), _PERIODS.get(pick[2], pick[2]))
+    param, vt, pd_ = hit.groups()
+    return (param, _TYPES.get(vt, vt), _PERIODS.get(pd_, pd_))
 
 
 def _wiski_id(station):
@@ -82,12 +84,23 @@ def rain_measures(session=None):
     return out
 
 
+def _measure_notation(m):
+    """A measure's notation: its `notation` field, else the last part of its `@id` (the
+    stations endpoint lists measures by `@id` only)."""
+    if not isinstance(m, dict):
+        return m
+    if m.get("notation"):
+        return m["notation"]
+    uri = m.get("@id") or ""
+    return uri.rstrip("/").rsplit("/", 1)[-1] or None
+
+
 def station_rain_measure(wiski_id, session=None):
     """The gauge's 15-minute rainfall measure notation, or None; the first if several."""
     body = _get("/id/stations.json", {"wiskiID": wiski_id}, session)
     for station in body.get("items", []):
         for m in station.get("measures", []) or []:
-            notation = m.get("notation") if isinstance(m, dict) else m
+            notation = _measure_notation(m)
             param, _, period = parse_notation(notation)
             if param == "rainfall" and period == "15min":
                 return notation
@@ -132,6 +145,20 @@ def fetch_readings(notation, from_date, to_date, session=None):
     if len(df) >= API_HARD_LIMIT:
         raise RuntimeError(f"{notation} {from_date} to {to_date} hit the API row limit")
     return df[["dateTime", "value", "quality"]]
+
+
+def reading_bounds(notation, session=None, sleep=time.sleep):
+    """The dates of the measure's first and last readings, or (None, None) if it has none.
+    Two one-reading requests, so a backfill can skip the years before a gauge opened and
+    after it closed."""
+    out = []
+    for which in ("earliest", "latest"):
+        items = _get(f"/id/measures/{notation}/readings.json", {which: ""}, session).get(
+            "items", [])
+        sleep(PAUSE_S)
+        stamp = parse_timestamps([items[0].get("dateTime")])[0] if items else pd.NaT
+        out.append(None if pd.isna(stamp) else stamp.date())
+    return tuple(out)
 
 
 def fetch_series(notation, start_date, end_date, session=None, sleep=time.sleep):
