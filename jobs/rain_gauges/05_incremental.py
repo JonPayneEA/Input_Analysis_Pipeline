@@ -1,7 +1,7 @@
 # Databricks notebook source
 # ============================================================
 # Tool:         05 incremental
-# Description:  Fetches each gauge's new readings since its latest stored timestamp; run daily
+# Description:  Fetches each gauge's new readings since its latest stored timestamp; run monthly
 # Flode Module: Input_Analysis_Pipeline
 # Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-16

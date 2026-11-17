@@ -95,6 +95,18 @@ def _measure_notation(m):
     return uri.rstrip("/").rsplit("/", 1)[-1] or None
 
 
+def rain_stations(session=None):
+    """Every rain station's WISKI ID, name and position: a list of {wiski_id, label, easting,
+    northing} dicts, eastings and northings in metres on British National Grid."""
+    body = _get("/id/stations.json", {"observedProperty": "rainfall", "_limit": 5000}, session)
+    out = []
+    for s in body.get("items", []):
+        if s.get("wiskiID") and s.get("easting") is not None and s.get("northing") is not None:
+            out.append({"wiski_id": str(s["wiskiID"]).strip(), "label": s.get("label"),
+                        "easting": float(s["easting"]), "northing": float(s["northing"])})
+    return out
+
+
 def station_rain_measure(wiski_id, session=None):
     """The gauge's 15-minute rainfall measure notation, or None; the first if several."""
     body = _get("/id/stations.json", {"wiskiID": wiski_id}, session)
