@@ -26,6 +26,9 @@ if _root is None:
     raise RuntimeError("Cannot find the repository; set PIPELINES_ROOT")
 if _root not in sys.path:
     sys.path.insert(0, _root)
+# Forget any copy of the pipelines code loaded before a git pull, so the new code is used
+for _name in [m for m in sys.modules if m == "pipelines" or m.startswith("pipelines.")]:
+    del sys.modules[_name]
 
 from pipelines import hydrology_api as api
 from pipelines import rain_gauges, store

@@ -34,6 +34,9 @@ if _root is None:
     raise RuntimeError("Cannot find the repository; set PIPELINES_ROOT")
 if _root not in sys.path:
     sys.path.insert(0, _root)
+# Forget any copy of the pipelines code loaded before a git pull, so the new code is used
+for _name in [m for m in sys.modules if m == "pipelines" or m.startswith("pipelines.")]:
+    del sys.modules[_name]
 
 from pipelines import rain_charts  # noqa: E402
 from pipelines.config import load_config  # noqa: E402
@@ -78,21 +81,22 @@ w.dropdown("table", "No", ["No", "Yes"], "7. Gauge table (slow)")
 
 # COMMAND ----------
 
-first_month, n_months = rain_charts.PERIODS[w.get("period")]
-year = int(w.get("year"))
-month = first_month or list(calendar.month_name).index(w.get("month"))
+# Each cell below reads the drop-downs itself, so it can be run on its own. If Python has
+# restarted since the set-up cells ran (serverless compute does after a pause), press Run all.
+if "cfg" not in globals():
+    raise RuntimeError("Python has restarted since the set-up cells ran: press Run all")
+ch = rain_charts.read_choices(dbutils.widgets.get)  # noqa: F821 - Databricks provides dbutils
+year, month, n_months = ch["year"], ch["month"], ch["n_months"]
 print("Drawing", rain_charts.period_label(year, month, n_months))
 
-if w.get("chart") in ("Gauge", "Both"):
-    fig, summary = rain_charts.gauge_chart(cfg, rain_charts.choice_id(w.get("gauge")), year,
-                                           month, n_months=n_months)
+if ch["chart"] in ("Gauge", "Both"):
+    fig, summary = rain_charts.gauge_chart(cfg, ch["gauge"], year, month, n_months=n_months)
     print(summary)
     display(fig)  # noqa: F821 - Databricks notebooks provide display()
     plt.close(fig)
 
-if w.get("chart") in ("Area", "Both") and areas:
-    fig, summary = rain_charts.area_chart(cfg, rain_charts.choice_id(w.get("area")), year,
-                                          month, n_months=n_months)
+if ch["chart"] in ("Area", "Both") and ch["area"] != "(none)":
+    fig, summary = rain_charts.area_chart(cfg, ch["area"], year, month, n_months=n_months)
     print(summary)
     display(fig)  # noqa: F821
     plt.close(fig)
@@ -102,7 +106,11 @@ if w.get("chart") in ("Area", "Both") and areas:
 # Every gauge's period against its own record and its five nearest neighbours. A gauge whose
 # rank sits far from its neighbours' (odd_one_out) has more likely failed than seen unusual
 # weather: check it before using it. Reads every gauge's record: allow some minutes.
-if w.get("table") == "Yes":
+if "cfg" not in globals():
+    raise RuntimeError("Python has restarted since the set-up cells ran: press Run all")
+ch = rain_charts.read_choices(dbutils.widgets.get)  # noqa: F821
+year, month, n_months = ch["year"], ch["month"], ch["n_months"]
+if ch["table"]:
     table = rain_charts.month_table(cfg, year, month, n_months=n_months)
     folder = f"{cfg['store_root']}/gold/charts/accumulation/{year}-{month:02d}"
     folder += f"_{n_months}m" if n_months > 1 else ""
