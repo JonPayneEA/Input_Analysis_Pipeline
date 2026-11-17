@@ -61,6 +61,24 @@ def load_locations(cfg):
     return loc.drop_duplicates("wiski_id").set_index("wiski_id")
 
 
+def gauge_choices(cfg):
+    """The gauges with records in the store, as "id - name" sorted by name, for a selector."""
+    reg = store.read_registry(cfg["registry_path"]) if "registry_path" in cfg else None
+    ids = (reg.loc[reg["backfill_done"].fillna(False).astype(bool), "gauge_id"].astype(str)
+           if reg is not None else pd.Series(dtype=str))
+    try:
+        names = load_locations(cfg)["label"]
+    except FileNotFoundError:
+        names = pd.Series(dtype=str)
+    rows = [(str(names.get(g, "") or g).strip(), g) for g in ids]
+    return [f"{g} - {n}" for n, g in sorted(rows)]
+
+
+def choice_id(choice):
+    """The gauge id from a selector choice such as "000008 - Harley"."""
+    return str(choice).split(" - ", 1)[0].strip()
+
+
 # ---- Areas -------------------------------------------------------------------------------------
 
 
@@ -126,21 +144,43 @@ def gauge_daily(cfg, gauge_id, since=None):
     return acc.daily_0900(series, _settings(cfg)["min_complete"])
 
 
-def _month_bounds(year, month):
+# The periods the charts offer, as (first month, number of months); None for the first month
+# means the month chosen.
+PERIODS = {"Month": (None, 1), "3 months": (None, 3), "6 months": (None, 6),
+           "12 months": (None, 12), "Water year (Oct-Sep)": (10, 12),
+           "Calendar year": (1, 12)}
+
+
+def period_label(year, month, n_months=1):
+    """A period's name: "October 2026", "Water year 2025-26 (Oct-Sep)", "2026", or
+    "Dec 2025 to Feb 2026"."""
     start = pd.Timestamp(year=year, month=month, day=1)
-    return start, start + pd.offsets.MonthBegin(1)
+    end = start + pd.DateOffset(months=n_months) - pd.Timedelta(days=1)
+    if n_months == 1:
+        return f"{calendar.month_name[month]} {year}"
+    if n_months == 12 and month == 10:
+        return f"Water year {year}-{str(year + 1)[2:]} (Oct-Sep)"
+    if n_months == 12 and month == 1:
+        return str(year)
+    return f"{start:%b %Y} to {end:%b %Y}"
 
 
-def _this_month(daily, year, month):
-    m = acc.month_matrix(daily, month)
+def _month_bounds(year, month, n_months=1):
+    start = pd.Timestamp(year=year, month=month, day=1)
+    return start, start + pd.DateOffset(months=n_months)
+
+
+def _this_month(daily, year, month, n_months=1):
+    m = acc.period_matrix(daily, month, n_months)
     return m.loc[year] if year in m.index else pd.Series(dtype=float)
 
 
 # ---- Charts ----------------------------------------------------------------------------------
 
 
-def _save_path(cfg, year, month, name):
-    folder = Path(_paths(cfg)["charts"]) / f"{year}-{month:02d}"
+def _save_path(cfg, year, month, name, n_months=1):
+    folder = Path(_paths(cfg)["charts"]) / (f"{year}-{month:02d}"
+                                            + (f"_{n_months}m" if n_months > 1 else ""))
     folder.mkdir(parents=True, exist_ok=True)
     return str(folder / f"{name}.png")
 
@@ -155,46 +195,51 @@ def _summary(kind, key, name, current, ref, history):
             "history": history, "years": ref.attrs["years"]}
 
 
-def gauge_chart(cfg, gauge_id, year, month, save=True):
+def gauge_chart(cfg, gauge_id, year, month, save=True, n_months=1):
     """The accumulation chart for one gauge. The reference lines come from the gauge's own
     record if it has at least `min_years` complete months, else from HadUK-Grid at the gauge's
     cell; the HadUK-Grid cell's own month is drawn dashed where it exists, as a check on the
     gauge. Returns (figure, summary)."""
     s = _settings(cfg)
     daily = gauge_daily(cfg, gauge_id)
-    matrix = acc.month_matrix(daily, month)
+    matrix = acc.period_matrix(daily, month, n_months)
     ref = acc.reference_lines(matrix, s["normal"], exclude=year)
     history = "gauge record"
     cell = read_haduk(cfg, "gauge", gauge_id)
     if ref.attrs["years"] < s["min_years"] and len(cell):
-        ref = acc.reference_lines(acc.month_matrix(cell, month), s["normal"], exclude=year)
+        ref = acc.reference_lines(acc.period_matrix(cell, month, n_months), s["normal"],
+                                  exclude=year)
         history = "HadUK-Grid at the gauge's 1 km cell"
     current = matrix.loc[year] if year in matrix.index else pd.Series(dtype=float)
-    cell_now = _this_month(cell, year, month) if len(cell) else None
+    cell_now = _this_month(cell, year, month, n_months) if len(cell) else None
     try:
         name = load_locations(cfg).loc[str(gauge_id), "label"]
     except (FileNotFoundError, KeyError):
         name = str(gauge_id)
     first = ref.attrs["first_year"]
-    source = (f"Gauge {gauge_id}, EA Hydrology API, 15-minute totals. Reference lines: "
+    dropped = daily.attrs.get("off_grid", 0)
+    source = (f"Gauge {gauge_id}, EA Hydrology API, 15-minute totals"
+              + (f" ({dropped} readings off the 15-minute grid left out)" if dropped else "")
+              + ". Reference lines: "
               f"{history}, {ref.attrs['years']} complete years from {first}; mean "
               f"{s['normal'][0]}-{s['normal'][1]} ({ref.attrs['normal_years']} years)")
-    title = f"Rainfall amount - {calendar.month_name[month]} {year} - {name}"
+    title = f"Rainfall amount - {period_label(year, month, n_months)} - {name}"
     fig = acc.accumulation_chart(
         current, ref, title, source, s["normal"],
-        _save_path(cfg, year, month, f"gauge_{gauge_id}") if save else None,
+        _save_path(cfg, year, month, f"gauge_{gauge_id}", n_months) if save else None,
         reference=cell_now if cell_now is not None and len(cell_now) else None,
-        reference_label="HadUK-Grid, this month")
+        reference_label="HadUK-Grid, same period",
+        period_start=_month_bounds(year, month)[0])
     return fig, _summary("gauge", gauge_id, name, current, ref, history)
 
 
-def area_daily_from_gauges(cfg, cells, year, month, locations=None):
-    """An area's daily rain for one month from the gauges, by Thiessen weights over its 1 km
+def area_daily_from_gauges(cfg, cells, year, month, locations=None, n_months=1):
+    """An area's daily rain for a period from the gauges, by Thiessen weights over its 1 km
     cells, the weights of gauges with no reading on a day shared among those that have one
     (the operational rule). Returns date, rain_mm and the weights used."""
     loc = locations if locations is not None else load_locations(cfg)
     weights = ar.thiessen_weights(cells, {g: (r.easting, r.northing) for g, r in loc.iterrows()})
-    start, end = _month_bounds(year, month)
+    start, end = _month_bounds(year, month, n_months)
     since = (start - pd.Timedelta(days=1)).tz_localize("UTC")
     cols = {}
     for g in weights:
@@ -211,7 +256,7 @@ def area_daily_from_gauges(cfg, cells, year, month, locations=None):
     return out, weights
 
 
-def area_chart(cfg, area_id, year, month, save=True):
+def area_chart(cfg, area_id, year, month, save=True, n_months=1):
     """The accumulation chart for a configured catchment or area. Reference lines from
     HadUK-Grid over the area; the month itself from HadUK-Grid where the files cover it, else
     from the gauges by Thiessen weights over the area's cells. Returns (figure, summary)."""
@@ -220,29 +265,31 @@ def area_chart(cfg, area_id, year, month, save=True):
     hist = read_haduk(cfg, "area", area_id)
     if not len(hist):
         raise ValueError(f"No HadUK-Grid series for area {area_id}: run 06_haduk_extract")
-    matrix = acc.month_matrix(hist, month)
+    matrix = acc.period_matrix(hist, month, n_months)
     ref = acc.reference_lines(matrix, s["normal"], exclude=year)
     if year in matrix.index and matrix.loc[year].notna().any():
         current, now_from = matrix.loc[year], "HadUK-Grid"
     else:
-        daily, weights = area_daily_from_gauges(cfg, area["cells"], year, month)
-        current = _this_month(daily, year, month)
+        daily, weights = area_daily_from_gauges(cfg, area["cells"], year, month,
+                                                n_months=n_months)
+        current = _this_month(daily, year, month, n_months)
         now_from = (f"{len(weights)} EA gauge{'s' if len(weights) != 1 else ''} by Thiessen "
                     "weights")
-    source = (f"This month: {now_from}. Reference lines: HadUK-Grid over {len(area['cells'])} "
+    source = (f"This period: {now_from}. Reference lines: HadUK-Grid over {len(area['cells'])} "
               f"cells, {ref.attrs['years']} complete years from {ref.attrs['first_year']}; "
               f"mean {s['normal'][0]}-{s['normal'][1]}")
-    title = f"Rainfall amount - {calendar.month_name[month]} {year} - {area['name']}"
+    title = f"Rainfall amount - {period_label(year, month, n_months)} - {area['name']}"
     fig = acc.accumulation_chart(current, ref, title, source, s["normal"],
-                                 _save_path(cfg, year, month, f"area_{area_id}")
-                                 if save else None)
+                                 _save_path(cfg, year, month, f"area_{area_id}", n_months)
+                                 if save else None,
+                                 period_start=_month_bounds(year, month)[0])
     return fig, _summary("area", area_id, area["name"], current, ref, now_from)
 
 
 # ---- Every gauge in one table --------------------------------------------------------------
 
 
-def month_table(cfg, year, month, neighbours=5):
+def month_table(cfg, year, month, neighbours=5, n_months=1):
     """Where every gauge's month stands: its total, the share of its mean, its standing, and
     its rank among its own years (0 driest to 1 wettest) beside the median rank of its
     `neighbours` nearest gauges. A gauge far from its neighbours (`odd_one_out`, ranks more
@@ -252,7 +299,7 @@ def month_table(cfg, year, month, neighbours=5):
     rows = []
     for g in loc.index:
         try:
-            m = acc.month_matrix(gauge_daily(cfg, g), month)
+            m = acc.period_matrix(gauge_daily(cfg, g), month, n_months)
         except Exception:  # noqa: BLE001 - a gauge with no store is simply left out
             continue
         if year not in m.index:

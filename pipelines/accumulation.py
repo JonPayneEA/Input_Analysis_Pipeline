@@ -20,7 +20,6 @@ starts, as in HadUK-Grid and Met Office daily rainfall. A day counts only if at 
 if every one of its days counts, so a gap is never mistaken for a dry spell.
 """
 
-import calendar
 
 import numpy as np
 import pandas as pd
@@ -32,8 +31,16 @@ RAIN_DAY_START_H = 9        # 09:00 UTC
 def daily_0900(series, min_complete=0.95):
     """Daily totals from 15-minute readings (`timestamp` UTC, `value` mm): `date` (the day the
     09:00 UTC rain day starts), `rain_mm`, and `complete`, the share of the 96 readings
-    present. Days below `min_complete` get no total."""
+    present. Days below `min_complete` get no total.
+
+    Only readings on the 15-minute grid count. The EA record holds a few readings at other
+    minutes (21 at gauge 000008 in 2024 and 2025, :50 and :55 past the hour), some of them
+    impossible, such as 145 mm in one reading; summing them would double-count. The number
+    left out is kept in the result's `off_grid` attribute."""
     s = series.dropna(subset=["timestamp"])
+    on_grid = (s["timestamp"].dt.minute % 15 == 0) & (s["timestamp"].dt.second == 0)
+    off_grid = int((~on_grid).sum())
+    s = s[on_grid]
     day = s["timestamp"] - pd.Timedelta(hours=RAIN_DAY_START_H)
     if day.dt.tz is not None:
         day = day.dt.tz_convert("UTC").dt.tz_localize(None)
@@ -45,28 +52,48 @@ def daily_0900(series, min_complete=0.95):
     })
     out.loc[out["complete"] < min_complete, "rain_mm"] = np.nan
     out.index.name = "date"
-    return out.reset_index()
+    out = out.reset_index()
+    out.attrs["off_grid"] = off_grid
+    return out
 
 
-def month_matrix(daily, month):
-    """Running totals within `month` for every year: one row per year, one column per day of
-    the month (1 to 31; NaN beyond the month's length). A year keeps only the days up to its
-    first missing day, so a gap ends its line rather than flattening it."""
+def period_matrix(daily, start_month, n_months=1):
+    """Running totals over a period of `n_months` months starting on the 1st of `start_month`,
+    for every year: one row per year the period starts in, one column per day of the period
+    (NaN beyond that year's length). A year keeps only the days up to its first missing day,
+    so a gap ends its line rather than flattening it. `n_months` 12 from October is the water
+    year; from January, the calendar year; 3 from December, the winter."""
     d = daily.copy()
     d["date"] = pd.to_datetime(d["date"])
-    d = d[d["date"].dt.month == month]
-    rows = {}
-    for year, g in d.groupby(d["date"].dt.year):
-        n = calendar.monthrange(year, month)[1]
-        vals = g.set_index(g["date"].dt.day)["rain_mm"].reindex(range(1, n + 1))
+    rain = d.set_index("date")["rain_mm"]
+    if not len(rain):
+        out = pd.DataFrame(columns=range(1, 32))
+        out.attrs.update(start_month=start_month, n_months=n_months, lengths={})
+        return out
+    rows, lengths = {}, {}
+    first, last = rain.index.min().year - 1, rain.index.max().year
+    for year in range(first, last + 1):
+        start = pd.Timestamp(year=year, month=start_month, day=1)
+        end = start + pd.DateOffset(months=n_months)
+        days = pd.date_range(start, end - pd.Timedelta(days=1))
+        vals = rain.reindex(days)
+        if vals.isna().all():
+            continue
         cum = vals.cumsum()
         first_gap = np.flatnonzero(vals.isna().to_numpy())
         if len(first_gap):
             cum.iloc[first_gap[0]:] = np.nan
-        rows[year] = cum.reindex(range(1, 32))
-    out = pd.DataFrame(rows, index=range(1, 32)).T.sort_index()
-    out.attrs["month"] = month
+        rows[year] = pd.Series(cum.to_numpy(), index=range(1, len(days) + 1))
+        lengths[year] = len(days)
+    width = max(lengths.values()) if lengths else 31
+    out = pd.DataFrame(rows, index=range(1, max(width, 31) + 1)).T.sort_index()
+    out.attrs.update(start_month=start_month, n_months=n_months, lengths=lengths)
     return out
+
+
+def month_matrix(daily, month):
+    """Running totals within `month` for every year: day 1 to 31 (NaN beyond the month)."""
+    return period_matrix(daily, month, 1)
 
 
 def reference_lines(matrix, normal=(1991, 2020), exclude=None):
@@ -75,9 +102,10 @@ def reference_lines(matrix, normal=(1991, 2020), exclude=None):
     lines and the lowest and highest over all complete years. Also `years` (all complete
     years) and `normal_years`."""
     m = matrix.drop(index=[exclude], errors="ignore")
-    month = matrix.attrs.get("month")
-    # A year is complete when its last day (28, 29, 30 or 31) has a running total
-    lengths = [calendar.monthrange(y, month)[1] if month else 31 for y in m.index]
+    # A year is complete when the last day of its period (which varies with the months'
+    # lengths and leap years) has a running total
+    known = matrix.attrs.get("lengths", {})
+    lengths = [known.get(y, m.columns.max()) for y in m.index]
     full = m[[pd.notna(m.at[y, n]) for y, n in zip(m.index, lengths, strict=True)]]
     in_normal = full[(full.index >= normal[0]) & (full.index <= normal[1])]
     # A record that misses the normal period entirely takes its mean over all its years
@@ -95,11 +123,12 @@ def reference_lines(matrix, normal=(1991, 2020), exclude=None):
     out.attrs["mean_label"] = (f"{normal[0]}-{normal[1]} mean" if len(in_normal)
                                else f"Mean of {len(full)} years")
     out.attrs["first_year"] = int(full.index.min()) if len(full) else None
+    out.attrs["n_months"] = matrix.attrs.get("n_months", 1)
     return out
 
 
 def accumulation_chart(current, ref, title, source, normal=(1991, 2020), path=None,
-                       reference=None, reference_label=None):
+                       reference=None, reference_label=None, period_start=None):
     """The chart: grey bands for 5 to 95% and 10 to 90%, the normal mean, the lowest and
     highest, and the month so far, shaded blue where above the mean and orange where below.
     `current` is a running total by day of month; `reference`, an optional second running
@@ -110,6 +139,11 @@ def accumulation_chart(current, ref, title, source, normal=(1991, 2020), path=No
     import matplotlib.pyplot as plt
 
     n = int(ref["mean"].last_valid_index() or len(current))
+    if period_start is not None:
+        # The plotted period's own length: a water year without 29 February has 365 days even
+        # when the reference lines, from leap years too, run to 366
+        end = pd.Timestamp(period_start) + pd.DateOffset(months=ref.attrs.get("n_months", 1))
+        n = min(n, (end - pd.Timestamp(period_start)).days)
     days = np.arange(1, n + 1)
     r = ref.loc[days]
     fig, ax = plt.subplots(figsize=(11, 6.5), dpi=150)
@@ -127,15 +161,25 @@ def accumulation_chart(current, ref, title, source, normal=(1991, 2020), path=No
                         alpha=0.85, lw=0)
         ax.fill_between(dd, cc, mm, where=cc < mm, interpolate=True, color="#e07b39",
                         alpha=0.85, lw=0)
-        ax.plot(dd, cc, color="#1b2a6b", lw=2.2, label="This month")
+        ax.plot(dd, cc, color="#1b2a6b", lw=2.2,
+                label="This month" if n <= 31 else "This period")
     if reference is not None:
         ref_cur = reference.reindex(days)
         ax.plot(days, ref_cur, color="0.1", lw=1.2, ls="--", label=reference_label)
     ax.set_xlim(0.8, n + 0.2)
     ax.set_ylim(0, None)
-    ax.set_xticks(days)
-    ax.tick_params(axis="x", labelrotation=90, labelsize=8)
-    ax.set_xlabel("Day of month (rain day starting 09:00 UTC)")
+    if n <= 31 or period_start is None:
+        ax.set_xticks(days)
+        ax.tick_params(axis="x", labelrotation=90, labelsize=8)
+        ax.set_xlabel("Day of month (rain day starting 09:00 UTC)")
+    else:
+        # Longer periods: a tick at the first of each month
+        dates = pd.date_range(period_start, periods=n)
+        firsts = np.flatnonzero(dates.day == 1)
+        ax.set_xticks(firsts + 1)
+        ax.set_xticklabels([dates[i].strftime("%b %Y") for i in firsts])
+        ax.tick_params(axis="x", labelrotation=90, labelsize=8)
+        ax.set_xlabel("Rain day starting 09:00 UTC")
     ax.set_ylabel("Rainfall amount (mm)")
     ax.set_title(title, fontweight="bold")
     ax.grid(color="0.9", lw=0.6)
@@ -145,7 +189,9 @@ def accumulation_chart(current, ref, title, source, normal=(1991, 2020), path=No
     if upto.any():
         handles += [Patch(color="#2aa6b8"), Patch(color="#e07b39")]
         labels += ["Above the mean", "Below the mean"]
-    ax.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=5,
+    # Month-name ticks on long periods are taller than day numbers: lower the legend to match
+    drop = -0.16 if n <= 31 else -0.24
+    ax.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, drop), ncol=5,
               frameon=False, fontsize=8)
     fig.tight_layout(rect=(0, 0.05, 1, 1))
     fig.text(0.01, 0.01, source, fontsize=7.5, color="0.35", wrap=True)

@@ -29,6 +29,16 @@ def test_rain_day_runs_from_0900_and_is_named_by_its_start():
     assert np.isnan(d.loc["2023-02-28", "rain_mm"])        # 1 of 96 readings: incomplete
 
 
+def test_readings_off_the_15_minute_grid_are_left_out():
+    # A full day of 0.25 mm on the grid (24 mm) plus a reading of 145.2 mm at 09:50, as in the
+    # EA record at gauge 000008 in January 2025: the day stays 24 mm, one reading left out
+    s = pd.concat([readings("2025-01-27 09:00", 96),
+                   readings("2025-01-27 09:50", 1, 145.2)])
+    d = acc.daily_0900(s)
+    assert d["rain_mm"].iloc[0] == 24.0 and d["complete"].iloc[0] == 1.0
+    assert d.attrs["off_grid"] == 1
+
+
 def test_a_day_short_of_readings_gets_no_total():
     s = readings("2023-03-01 09:00", 90)                      # 90 / 96 = 0.9375 < 0.95
     assert np.isnan(acc.daily_0900(s)["rain_mm"].iloc[0])
@@ -272,3 +282,69 @@ def test_area_chart_from_haduk_history_and_gauges_this_month(tmp_path):
     assert summary["history"] == "1 EA gauge by Thiessen weights"
     # A second extraction skips the years already done, except the latest
     assert rain_charts.run_haduk_extract(cfg) == [2022]
+
+
+# ---- Longer periods and the selectors ------------------------------------------------------------
+
+
+def test_water_years_of_366_and_365_days():
+    # 1 mm every day from October 2019 to September 2021. Water year 2019 (Oct 2019 to Sep 2020)
+    # holds 29 February 2020: 366 days, 366 mm. Water year 2020: 365. Both are complete.
+    days = pd.date_range("2019-10-01", "2021-09-30")
+    m = acc.period_matrix(pd.DataFrame({"date": days, "rain_mm": 1.0}), 10, 12)
+    assert m.attrs["lengths"] == {2019: 366, 2020: 365}
+    assert m.loc[2019, 366] == 366.0 and np.isnan(m.loc[2020, 366])
+    ref = acc.reference_lines(m, normal=(2019, 2020))
+    assert ref.attrs["years"] == 2
+    assert ref.loc[365, "mean"] == 365.0
+
+
+def test_a_winter_runs_across_the_new_year():
+    # December 2022 to February 2023 at 2 mm a day: 31 + 31 + 28 = 90 days, 180 mm
+    days = pd.date_range("2022-12-01", "2023-02-28")
+    m = acc.period_matrix(pd.DataFrame({"date": days, "rain_mm": 2.0}), 12, 3)
+    assert m.attrs["lengths"] == {2022: 90}
+    assert m.loc[2022, 90] == 180.0
+
+
+def test_period_names():
+    assert rain_charts.period_label(2026, 10) == "October 2026"
+    assert rain_charts.period_label(2025, 10, 12) == "Water year 2025-26 (Oct-Sep)"
+    assert rain_charts.period_label(2026, 1, 12) == "2026"
+    assert rain_charts.period_label(2025, 12, 3) == "Dec 2025 to Feb 2026"
+
+
+def test_long_charts_mark_the_months(tmp_path):
+    days = pd.date_range("2019-10-01", "2021-09-30")
+    m = acc.period_matrix(pd.DataFrame({"date": days, "rain_mm": 1.0}), 10, 12)
+    ref = acc.reference_lines(m)
+    fig = acc.accumulation_chart(m.loc[2020], ref, "t", "s",
+                                 period_start=pd.Timestamp("2020-10-01"))
+    labels = [x.get_text() for x in fig.axes[0].get_xticklabels()]
+    assert labels[:2] == ["Oct 2020", "Nov 2020"] and len(labels) == 12
+
+
+def test_gauge_choices_sorted_by_name_and_read_back(tmp_path):
+    cfg = make_cfg(tmp_path)
+    cfg["registry_path"] = f"{cfg['store_root']}/register/gauge_registry.parquet"
+    from pipelines import rain_gauges
+    reg = rain_gauges.gauge_registry([{"wiski_id": g, "notation": "n"} for g in ("A1", "B2")])
+    reg["backfill_done"] = True
+    store.write_registry(reg, cfg["registry_path"])
+    store.write_csv(pd.DataFrame({"wiski_id": ["A1", "B2"], "label": ["Zennor", "Alston"],
+                                  "easting": 1.0, "northing": 1.0}),
+                    rain_charts._paths(cfg)["locations"])
+    choices = rain_charts.gauge_choices(cfg)
+    assert choices == ["B2 - Alston", "A1 - Zennor"]
+    assert rain_charts.choice_id(choices[0]) == "B2"
+
+
+def test_gauge_chart_over_three_months(tmp_path):
+    cfg = make_cfg(tmp_path)
+    for y in (2019, 2020, 2021, 2022):
+        for mth in (10, 11, 12):
+            put_gauge(cfg, "A", [y], mth, [1.0])
+    store.write_csv(pd.DataFrame({"wiski_id": ["A"], "label": ["A"], "easting": [1.0],
+                                  "northing": [1.0]}), rain_charts._paths(cfg)["locations"])
+    fig, s = rain_charts.gauge_chart(cfg, "A", 2022, 10, n_months=3)
+    assert s["days"] == 92 and s["total_mm"] == pytest.approx(92.0)   # 31 + 30 + 31 days
