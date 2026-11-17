@@ -74,6 +74,16 @@ def gauge_choices(cfg):
     return [f"{g} - {n}" for n, g in sorted(rows)]
 
 
+def read_choices(get):
+    """The chart choices from the notebook's widgets (`get` is dbutils.widgets.get): chart,
+    gauge and area ids, year, first month, number of months and whether to build the table."""
+    first_month, n_months = PERIODS[get("period")]
+    return {"chart": get("chart"), "gauge": choice_id(get("gauge")),
+            "area": choice_id(get("area")), "year": int(get("year")),
+            "month": first_month or list(calendar.month_name).index(get("month")),
+            "n_months": n_months, "table": get("table") == "Yes"}
+
+
 def choice_id(choice):
     """The gauge id from a selector choice such as "000008 - Harley"."""
     return str(choice).split(" - ", 1)[0].strip()

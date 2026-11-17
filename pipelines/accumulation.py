@@ -45,7 +45,9 @@ def daily_0900(series, min_complete=0.95):
     minutes (21 at gauge 000008 in 2024 and 2025, :50 and :55 past the hour), some of them
     impossible, such as 145 mm in one reading; summing them would double-count. The number
     left out is kept in the result's `off_grid` attribute, and by day in its `off_grid` column."""
-    s = series.dropna(subset=["timestamp"])
+    s = series.dropna(subset=["timestamp"]).copy()
+    # An empty table's timestamp column has no date type; give it one
+    s["timestamp"] = pd.to_datetime(s["timestamp"], utc=True)
     on_grid = (s["timestamp"].dt.minute % 15 == 0) & (s["timestamp"].dt.second == 0)
     off_grid = int((~on_grid).sum())
     off_day = _rain_day(s.loc[~on_grid, "timestamp"])
