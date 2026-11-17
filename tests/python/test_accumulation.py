@@ -348,3 +348,50 @@ def test_gauge_chart_over_three_months(tmp_path):
                                   "northing": [1.0]}), rain_charts._paths(cfg)["locations"])
     fig, s = rain_charts.gauge_chart(cfg, "A", 2022, 10, n_months=3)
     assert s["days"] == 92 and s["total_mm"] == pytest.approx(92.0)   # 31 + 30 + 31 days
+
+
+
+# ---- Saved daily tables ------------------------------------------------------------------------
+
+
+def test_daily_table_saved_reused_and_rebuilt(tmp_path, monkeypatch):
+    # The first read builds gold/rain_daily/A.parquet from Bronze; the second reads it without
+    # touching Bronze; a newer Bronze file makes the next read rebuild it.
+    import os
+    cfg = make_cfg(tmp_path)
+    put_gauge(cfg, "A", [2022], 10, [2.0])
+    first = rain_charts.gauge_daily(cfg, "A")
+    assert first["rain_mm"].sum() == pytest.approx(62.0)          # 31 days at 2 mm
+    saved = tmp_path / "store" / "gold" / "rain_daily" / "A.parquet"
+    assert saved.exists()
+
+    def no_bronze(*a, **k):
+        raise AssertionError("Bronze read when the daily table was up to date")
+    monkeypatch.setattr(store, "read_series", no_bronze)
+    assert rain_charts.gauge_daily(cfg, "A")["rain_mm"].sum() == pytest.approx(62.0)
+    monkeypatch.undo()
+    put_gauge(cfg, "A", [2023], 10, [1.0])
+    newest = max(f.stat().st_mtime for f in store.series_files(cfg["store_root"], "A"))
+    os.utime(saved, (newest - 10, newest - 10))                     # the table is now older
+    assert rain_charts.gauge_daily(cfg, "A")["rain_mm"].sum() == pytest.approx(93.0)
+
+
+def test_the_completeness_threshold_is_applied_on_reading(tmp_path):
+    # A day with 90 of 96 readings is saved with its total and share; it counts at a
+    # threshold of 0.9 and not at the default 0.95, with no rebuild in between
+    cfg = make_cfg(tmp_path)
+    s = readings("2023-03-01 09:00", 90)
+    ds = store.dataset_id("A")
+    store.write_bronze_by_year(store.to_bronze(pd.DataFrame(
+        {"dateTime": s["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S"), "value": s["value"],
+         "quality": "Good"}), ds, "A"), cfg["store_root"], "P", ds)
+    assert np.isnan(rain_charts.gauge_daily(cfg, "A")["rain_mm"].iloc[0])
+    cfg["accumulation"]["min_complete"] = 0.9
+    assert rain_charts.gauge_daily(cfg, "A")["rain_mm"].iloc[0] == 22.5
+
+
+def test_off_grid_readings_counted_by_day():
+    s = pd.concat([readings("2025-01-27 09:00", 96), readings("2025-01-27 09:50", 1, 145.2),
+                   readings("2025-01-28 09:55", 1, 5.0)])
+    d = acc.daily_0900(s, min_complete=0.0).set_index("date")
+    assert d.loc["2025-01-27", "off_grid"] == 1 and d.loc["2025-01-27", "rain_mm"] == 24.0

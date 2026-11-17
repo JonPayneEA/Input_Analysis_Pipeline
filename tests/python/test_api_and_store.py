@@ -108,3 +108,20 @@ def test_watermark_comes_from_the_latest_year(tmp_path):
     hwm = store.high_watermark(str(tmp_path), "G1")              # G10 is another gauge
     assert hwm == pd.Timestamp("2024-02-01 06:00", tz="UTC")
     assert store.high_watermark(str(tmp_path), "G2") is None
+
+
+
+def test_file_index_lists_every_gauge_once(tmp_path):
+    # Two gauges, one with files in two years and two received dates; G10 is not mixed up
+    # with G1
+    for ds, rows in [("EA_G1_P_20261101", [("2023-05-01T00:00:00", 1, None)]),
+                     ("EA_G1_P_20261102", [("2024-02-01T06:00:00", 1, None)]),
+                     ("EA_G10_P_20261102", [("2025-01-01T00:00:00", 1, None)])]:
+        site = ds.split("_")[1]
+        store.write_bronze_by_year(store.to_bronze(readings(rows), ds, site),
+                                   str(tmp_path), "P", ds)
+    index = store.file_index(str(tmp_path))
+    assert sorted(index) == ["G1", "G10"]
+    assert [p.name for p in index["G1"]] == ["EA_G1_P_20261101.parquet",
+                                             "EA_G1_P_20261102.parquet"]
+    assert index["G1"] == store.series_files(str(tmp_path), "G1")

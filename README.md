@@ -128,6 +128,13 @@ blue where the month is above the mean, orange below.
   beside the median rank of its five nearest gauges. A gauge far from its neighbours
   (`odd_one_out`) has more likely failed than seen unusual weather.
 
+**Daily tables.** The charts and the gauge table read each gauge's daily totals from
+`gold/rain_daily/<gauge>.parquet`, about 11,000 rows for 30 years, not the million or so
+15-minute readings behind them. A table is rebuilt whenever the gauge's Bronze files are newer
+than it, and `05_incremental` rebuilds the changed ones after each update. The first build of
+all 995 takes a while; after that a chart takes about a second and the gauge table a minute or
+two. The completeness threshold is applied on reading, so changing it needs no rebuild.
+
 HadUK-Grid is read once by `06_haduk_extract` into one Parquet file a year under
 `gold/haduk/rainfall_daily/`: reading the NetCDF files for every chart would be far too slow.
 The notebooks install `xarray` and `netCDF4` with `%pip` if the runtime lacks them. HadUK-Grid

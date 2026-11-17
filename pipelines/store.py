@@ -191,6 +191,26 @@ def series_files(root, site_id, data_type="P"):
     return sorted(files, key=lambda p: (_RECEIVED.search(p.name).group(1), str(p)))
 
 
+_SERIES_NAME = re.compile(r"^EA_(?P<site>.+?)_(?P<type>[A-Z]+)(_.+)?_\d{8}\.parquet$")
+
+
+def file_index(root, data_type="P"):
+    """Every gauge's Bronze files from one listing of the store: {site_id: [paths]}, each list
+    oldest received first. Listing a volume folder is slow, so callers that visit many gauges
+    build this once and pass each gauge its own list."""
+    base = Path(root) / "bronze" / CATEGORY / SUPPLIER_CODE / data_type
+    index = {}
+    if not base.exists():
+        return index
+    for p in base.glob("*/*.parquet"):
+        hit = _SERIES_NAME.match(p.name)
+        if hit and hit.group("type") == data_type:
+            index.setdefault(hit.group("site"), []).append(p)
+    for files in index.values():
+        files.sort(key=lambda p: (_RECEIVED.search(p.name).group(1), str(p)))
+    return index
+
+
 def high_watermark(root, site_id, data_type="P"):
     """The latest stored timestamp for a gauge, from its latest year folder; None if none."""
     files = [p for p in series_files(root, site_id, data_type) if p.parent.name.isdigit()]
@@ -203,10 +223,11 @@ def high_watermark(root, site_id, data_type="P"):
     return max(stamps) if stamps else None
 
 
-def read_series(root, site_id, data_type="P", since=None):
+def read_series(root, site_id, data_type="P", since=None, files=None):
     """A gauge's Bronze rows, the most recently received winning on a repeat. `since` (a UTC
-    timestamp) reads only the year folders and rows from then on."""
-    files = series_files(root, site_id, data_type)
+    timestamp) reads only the year folders and rows from then on. `files`, the gauge's list
+    from file_index(), saves listing the store again."""
+    files = series_files(root, site_id, data_type) if files is None else list(files)
     if since is not None:
         files = [p for p in files if not p.parent.name.isdigit()
                  or int(p.parent.name) >= since.year]

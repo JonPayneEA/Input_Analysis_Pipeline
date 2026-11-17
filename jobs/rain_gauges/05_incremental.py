@@ -7,7 +7,7 @@
 # Created:      2026-11-16
 # Tier:         1
 # Inputs:       The registry and the Bronze store
-# Outputs:      New Bronze Parquet; the register and logs/incremental_log.csv
+# Outputs:      New Bronze Parquet; the register and logs/incremental_log.csv; daily tables
 # Dependencies: pandas, pyarrow, requests, pyyaml (all in the Databricks runtime)
 # ============================================================
 
@@ -37,3 +37,12 @@ import pandas as pd
 
 log = rain_gauges.run_incremental(cfg, received_by=cfg.get("received_by"))
 print(pd.Series([r["status"] for r in log]).value_counts())
+
+# COMMAND ----------
+
+# Rebuild the daily tables of the gauges that changed, so the accumulation charts and the
+# gauge table read daily totals rather than the 15-minute record
+from pipelines import rain_charts  # noqa: E402
+
+print(rain_charts.refresh_daily(cfg), "daily tables rebuilt")
+

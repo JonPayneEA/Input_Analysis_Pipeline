@@ -138,10 +138,60 @@ def read_haduk(cfg, kind, key):
 # ---- Gauge rain ----------------------------------------------------------------------------------
 
 
-def gauge_daily(cfg, gauge_id, since=None):
-    """A gauge's daily totals on the 09:00 UTC rain day, from the Bronze store."""
-    series = store.read_series(cfg["store_root"], gauge_id, since=since)
-    return acc.daily_0900(series, _settings(cfg)["min_complete"])
+def _daily_path(cfg, gauge_id):
+    return f"{cfg['store_root']}/gold/rain_daily/{gauge_id}.parquet"
+
+
+def gauge_daily(cfg, gauge_id, since=None, files=None):
+    """A gauge's daily totals on the 09:00 UTC rain day: date, rain_mm, complete (the share of
+    the day's 96 readings present) and off_grid (readings left out). Days with less than
+    `accumulation.min_complete` of their readings get no total.
+
+    Read from a saved daily table, gold/rain_daily/<gauge>.parquet, about 11,000 rows for 30
+    years, rather than from the million or so 15-minute readings behind it. The table is
+    rebuilt from the Bronze store whenever any of the gauge's Bronze files is newer than it,
+    so it never lags the readings. `files`, the gauge's list from store.file_index(), saves
+    listing the store again when visiting many gauges."""
+    root = cfg["store_root"]
+    files = store.series_files(root, gauge_id) if files is None else files
+    if not files:
+        return acc.daily_0900(pd.DataFrame(columns=["timestamp", "value"]))
+    path = Path(_daily_path(cfg, gauge_id))
+    newest = max(f.stat().st_mtime for f in files)
+    if path.exists() and path.stat().st_mtime >= newest:
+        daily = pq.read_table(path).to_pandas()
+    else:
+        # Every day with its completeness; the threshold is applied on reading, so changing
+        # it needs no rebuild
+        daily = acc.daily_0900(store.read_series(root, gauge_id, files=files),
+                               min_complete=0.0)
+        store.write_parquet(daily, str(path))
+    daily["date"] = pd.to_datetime(daily["date"])
+    daily.loc[daily["complete"] < _settings(cfg)["min_complete"], "rain_mm"] = np.nan
+    if since is not None:
+        cut = pd.Timestamp(since).tz_localize(None) if pd.Timestamp(since).tzinfo else since
+        daily = daily[daily["date"] >= pd.Timestamp(cut).normalize() - pd.Timedelta(days=1)]
+    daily = daily.reset_index(drop=True)
+    daily.attrs["off_grid"] = int(daily["off_grid"].sum()) if "off_grid" in daily else 0
+    return daily
+
+
+def refresh_daily(cfg, gauges=None):
+    """Brings every gauge's saved daily table up to date with its Bronze files; run after
+    each update (05_incremental does). Returns how many tables were rebuilt."""
+    ids = gauges if gauges is not None else [
+        str(g) for g in store.read_registry(cfg["registry_path"])["gauge_id"]]
+    index = store.file_index(cfg["store_root"])
+    rebuilt = 0
+    for k, g in enumerate(ids, start=1):
+        path = Path(_daily_path(cfg, g))
+        before = path.stat().st_mtime if path.exists() else None
+        gauge_daily(cfg, g, files=index.get(g, []))
+        after = path.stat().st_mtime if path.exists() else None
+        rebuilt += after is not None and after != before
+        if k % 100 == 0:
+            print(f"{k}/{len(ids)} gauges checked, {rebuilt} daily tables rebuilt", flush=True)
+    return rebuilt
 
 
 # The periods the charts offer, as (first month, number of months); None for the first month
@@ -296,10 +346,13 @@ def month_table(cfg, year, month, neighbours=5, n_months=1):
     than 0.6 apart) has more likely failed than met unusual weather."""
     s = _settings(cfg)
     loc = load_locations(cfg)
+    index = store.file_index(cfg["store_root"])
     rows = []
     for g in loc.index:
+        if g not in index:
+            continue
         try:
-            m = acc.period_matrix(gauge_daily(cfg, g), month, n_months)
+            m = acc.period_matrix(gauge_daily(cfg, g, files=index[g]), month, n_months)
         except Exception:  # noqa: BLE001 - a gauge with no store is simply left out
             continue
         if year not in m.index:

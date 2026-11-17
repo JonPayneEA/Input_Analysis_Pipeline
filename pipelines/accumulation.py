@@ -28,6 +28,14 @@ STEPS_PER_DAY = 96          # 15-minute readings
 RAIN_DAY_START_H = 9        # 09:00 UTC
 
 
+def _rain_day(timestamps):
+    """The rain day (the date its 09:00 UTC start falls on) of each timestamp, without zone."""
+    day = pd.to_datetime(timestamps) - pd.Timedelta(hours=RAIN_DAY_START_H)
+    if day.dt.tz is not None:
+        day = day.dt.tz_convert("UTC").dt.tz_localize(None)
+    return day.dt.normalize()
+
+
 def daily_0900(series, min_complete=0.95):
     """Daily totals from 15-minute readings (`timestamp` UTC, `value` mm): `date` (the day the
     09:00 UTC rain day starts), `rain_mm`, and `complete`, the share of the 96 readings
@@ -36,20 +44,20 @@ def daily_0900(series, min_complete=0.95):
     Only readings on the 15-minute grid count. The EA record holds a few readings at other
     minutes (21 at gauge 000008 in 2024 and 2025, :50 and :55 past the hour), some of them
     impossible, such as 145 mm in one reading; summing them would double-count. The number
-    left out is kept in the result's `off_grid` attribute."""
+    left out is kept in the result's `off_grid` attribute, and by day in its `off_grid` column."""
     s = series.dropna(subset=["timestamp"])
     on_grid = (s["timestamp"].dt.minute % 15 == 0) & (s["timestamp"].dt.second == 0)
     off_grid = int((~on_grid).sum())
+    off_day = _rain_day(s.loc[~on_grid, "timestamp"])
     s = s[on_grid]
-    day = s["timestamp"] - pd.Timedelta(hours=RAIN_DAY_START_H)
-    if day.dt.tz is not None:
-        day = day.dt.tz_convert("UTC").dt.tz_localize(None)
-    day = day.dt.normalize()
+    day = _rain_day(s["timestamp"])
     present = s["value"].notna()
     out = pd.DataFrame({
         "rain_mm": s["value"].where(present, 0.0).groupby(day).sum(),
         "complete": present.groupby(day).sum() / STEPS_PER_DAY,
     })
+    # Off-grid readings by the rain day they fell in, kept for the record
+    out["off_grid"] = off_day.value_counts().reindex(out.index).fillna(0).astype(int)
     out.loc[out["complete"] < min_complete, "rain_mm"] = np.nan
     out.index.name = "date"
     out = out.reset_index()
