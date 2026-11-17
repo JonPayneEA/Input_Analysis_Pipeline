@@ -29,3 +29,22 @@ incremental:
   lookback_days: 90             # re-fetch this many days before the latest stored reading, so
                                 # readings the EA revises after publishing are picked up
 
+# HadUK-Grid (Met Office, Open Government Licence): the folder holding the 1 km daily rainfall
+# NetCDF files, searched below for rainfall_hadukgrid_uk_1km_day_*.nc.
+haduk:
+  root: /Volumes/<catalog>/<schema>/<volume>/<haduk folder>/
+  start_year: 1961              # extract from this year; 1961 covers the 1991-2020 normal
+
+# Catchments or areas for the accumulation charts: an id, a name, and a GeoJSON outline in
+# British National Grid metres (EPSG:27700).
+areas: []
+#  - id: beggearn_huish
+#    name: Beggearn Huish
+#    geojson: /Volumes/<catalog>/<schema>/<volume>/outlines/beggearn_huish.geojson
+
+accumulation:
+  normal_start: 1991            # the mean line's period
+  normal_end: 2020
+  min_years: 20                 # fewer complete years at a gauge: use HadUK-Grid at its cell
+  min_complete: 0.95            # share of a day's 96 readings needed for the day to count
+

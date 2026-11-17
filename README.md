@@ -12,10 +12,14 @@ writes, so the store reads back in R with `reach.io::read_bronze()`.
 
 | Path | What it holds |
 |---|---|
-| `jobs/rain_gauges/01_setup_store.py` to `05_incremental.py` | The jobs, as Databricks notebooks, in the order they run |
+| `jobs/rain_gauges/01_setup_store.py` to `07_rainfall_accumulation.py` | The jobs, as Databricks notebooks, in the order they run |
 | `pipelines/hydrology_api.py` | The Hydrology API: measures, annual chunks of readings, retries, the one-second pause |
 | `pipelines/store.py` | reach.io's Bronze layout: dataset IDs, files by year, the register and the registry |
 | `pipelines/rain_gauges.py` | The registry, the chunked backfill and the incremental update |
+| `pipelines/haduk.py` | Finding and reading HadUK-Grid daily rainfall at points and over areas |
+| `pipelines/areas.py` | Outlines in GeoJSON, the 1 km cells inside them, Thiessen weights of gauges |
+| `pipelines/accumulation.py` | 09:00 rain days, monthly running totals, reference lines, the chart |
+| `pipelines/rain_charts.py` | Gauge positions, the HadUK-Grid extract, gauge and area charts, the month table |
 | `pipelines/config.py` | Reading the configuration |
 | `config/config.example.yml` | The settings. Copy it; never commit the copy |
 | `tests/python/` | Tests, with a fake API so none touches the network |
@@ -46,6 +50,8 @@ on an unrestricted one; H19, FEH SAAR and MOSES need a restricted volume of thei
 | 3 | `03_trial` | Once, before the backfill | Backfills a few gauges for one year, reads one back and estimates the full run's hours |
 | 4 | `04_backfill` | As a job until nothing is left | Backfills every gauge not yet done, chunk by chunk |
 | 5 | `05_incremental` | Monthly, as a scheduled job, a few days after the EA's monthly release | Fetches each gauge's new readings, and any the EA has revised in the look-back period |
+| 6 | `06_haduk_extract` | Once, then after each HadUK-Grid release | Gauge positions, then HadUK-Grid daily rainfall for every gauge's 1 km cell and every configured area |
+| 7 | `07_rainfall_accumulation` | Monthly, after the update | Accumulation charts for chosen gauges and areas, and a table of where every gauge's month stands |
 
 **Read the trial before the backfill.** It shows whether the volume accepts the writes and how
 long a gauge-year takes. The EA asks for one request at a time, so the jobs make one request a
@@ -89,6 +95,35 @@ SELECT * FROM parquet.`<store_root>/bronze/hydrometric/EA/P/*/*.parquet`;
 
 When building Silver, keep the most recently received row per gauge and timestamp, as the
 readers do.
+
+## Rainfall accumulation charts
+
+![October 2026 at Harley, against its own record](docs/images/accumulation_harley_2026_10.png)
+
+In the style the Met Office publishes for the UK: the month's running total day by day against
+the reference lines from earlier years, the 1991-2020 mean (or, for a record that misses it,
+the mean of all its years), the 5, 10, 90 and 95% lines, and the lowest and highest. Shaded
+blue where the month is above the mean, orange below.
+
+- **Rain days run 09:00 to 09:00 UTC**, named by the day they start, as in HadUK-Grid. A day
+  counts only with 95% of its 96 readings (`accumulation.min_complete`), and a month counts
+  towards the reference lines only if every day does, so a gap is never taken for a dry spell.
+- **A gauge** is drawn against its own record when it has at least `accumulation.min_years`
+  complete months (default 20), else against HadUK-Grid at its 1 km cell. Where HadUK-Grid
+  covers the month, its cell is drawn dashed beside the gauge, as a check on the gauge.
+- **A catchment or area** (a GeoJSON outline in British National Grid metres, listed under
+  `areas`) is drawn against HadUK-Grid averaged over its cells. The month itself comes from
+  HadUK-Grid where the files cover it, else from the gauges by Thiessen weights on the 1 km
+  grid, a failed gauge's weight shared among the others as in the operational scheme.
+- **The month table** ranks every gauge's month among its own years (0 driest, 1 wettest)
+  beside the median rank of its five nearest gauges. A gauge far from its neighbours
+  (`odd_one_out`) has more likely failed than seen unusual weather.
+
+HadUK-Grid is read once by `06_haduk_extract` into one Parquet file a year under
+`gold/haduk/rainfall_daily/`: reading the NetCDF files for every chart would be far too slow.
+The notebooks install `xarray` and `netCDF4` with `%pip` if the runtime lacks them. HadUK-Grid
+is interpolated from rain gauges, many of them these, so it is a good check for gross errors
+and changes but not proof that a gauge is right to within a few per cent.
 
 ## Testing
 
