@@ -203,11 +203,35 @@ def high_watermark(root, site_id, data_type="P"):
     return max(stamps) if stamps else None
 
 
-def read_series(root, site_id, data_type="P"):
-    """All of a gauge's Bronze rows, the most recently received winning on a repeat."""
+def read_series(root, site_id, data_type="P", since=None):
+    """A gauge's Bronze rows, the most recently received winning on a repeat. `since` (a UTC
+    timestamp) reads only the year folders and rows from then on."""
     files = series_files(root, site_id, data_type)
+    if since is not None:
+        files = [p for p in files if not p.parent.name.isdigit()
+                 or int(p.parent.name) >= since.year]
     if not files:
         return pd.DataFrame(columns=BRONZE_SCHEMA.names)
     df = pd.concat([pq.read_table(p).to_pandas() for p in files], ignore_index=True)
+    if since is not None:
+        df = df[df["timestamp"] >= since]
     return (df.drop_duplicates("timestamp", keep="last").sort_values("timestamp")
             .reset_index(drop=True))
+
+
+def changed_rows(bronze, existing):
+    """The rows of `bronze` that are new (a timestamp not in `existing`) or revised (a value or
+    supplier flag that differs from the stored one). Missing values and flags compare equal."""
+    if existing is None or not len(existing):
+        return bronze
+    old = existing.set_index("timestamp")[["value", "supplier_flag"]]
+    old = old.reindex(bronze["timestamp"])
+    # Present means the timestamp is stored, even if its value and flag are both missing
+    present = bronze["timestamp"].isin(existing["timestamp"]).to_numpy()
+    new_v, old_v = bronze["value"].to_numpy(), old["value"].to_numpy()
+    same_value = (new_v == old_v) | (pd.isna(new_v) & pd.isna(old_v))
+    new_f = bronze["supplier_flag"].astype("object").where(bronze["supplier_flag"].notna(), None)
+    old_f = old["supplier_flag"].astype("object").where(old["supplier_flag"].notna(), None)
+    same_flag = new_f.to_numpy() == old_f.to_numpy()
+    keep = ~present | ~same_value | ~same_flag
+    return bronze[keep].reset_index(drop=True)
