@@ -135,6 +135,13 @@ than it, and `05_incremental` rebuilds the changed ones after each update. The f
 all 995 takes a while; after that a chart takes about a second and the gauge table a minute or
 two. The completeness threshold is applied on reading, so changing it needs no rebuild.
 
+Each day also counts its readings by the EA's quality flag (`n_good`, `n_estimated`,
+`n_unchecked`, `n_suspect`, `n_missing`, `n_other`). No reading is dropped for its flag: the
+daily tables summarise the raw record, and quality control decides what to trust. At Harley,
+1997 to 2026, 50% of readings are Unchecked, 42% Good, 8% Suspect and 1% Missing. Until quality
+control is in place, read the charts and daily totals as a first look at raw data, not as
+checked figures for model input.
+
 HadUK-Grid is read once by `06_haduk_extract` into one Parquet file a year under
 `gold/haduk/rainfall_daily/`: reading the NetCDF files for every chart would be far too slow.
 The notebooks install `xarray` and `netCDF4` with `%pip` if the runtime lacks them. HadUK-Grid

@@ -154,7 +154,8 @@ def _daily_path(cfg, gauge_id):
 
 def gauge_daily(cfg, gauge_id, since=None, files=None):
     """A gauge's daily totals on the 09:00 UTC rain day: date, rain_mm, complete (the share of
-    the day's 96 readings present) and off_grid (readings left out). Days with less than
+    the day's 96 readings present), off_grid (readings left out) and the count of the day's
+    readings under each EA quality flag (n_good, n_unchecked, ...). Days with less than
     `accumulation.min_complete` of their readings get no total.
 
     Read from a saved daily table, gold/rain_daily/<gauge>.parquet, about 11,000 rows for 30
@@ -168,9 +169,12 @@ def gauge_daily(cfg, gauge_id, since=None, files=None):
         return acc.daily_0900(pd.DataFrame(columns=["timestamp", "value"]))
     path = Path(_daily_path(cfg, gauge_id))
     newest = max(f.stat().st_mtime for f in files)
-    if path.exists() and path.stat().st_mtime >= newest:
+    current = path.exists() and path.stat().st_mtime >= newest
+    if current:
         daily = pq.read_table(path).to_pandas()
-    else:
+        # A table built before the flag counts were added is rebuilt
+        current = all(c in daily for c in acc.FLAG_COLUMNS)
+    if not current:
         # Every day with its completeness; the threshold is applied on reading, so changing
         # it needs no rebuild
         daily = acc.daily_0900(store.read_series(root, gauge_id, files=files),

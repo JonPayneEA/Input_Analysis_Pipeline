@@ -416,3 +416,26 @@ def test_refresh_daily_passes_a_gauge_with_no_files(tmp_path):
     put_gauge(cfg, "A", [2022], 10, [1.0])
     assert rain_charts.refresh_daily(cfg, gauges=["A", "E"]) == 1
     assert len(rain_charts.gauge_daily(cfg, "E")) == 0
+
+
+
+def test_each_day_counts_its_readings_by_ea_flag():
+    # 96 readings: 90 Good, 4 Suspect, 1 Missing (no value), 1 with an unknown flag. The
+    # total counts every value present, whatever its flag: 95 x 0.25 = 23.75 mm.
+    s = readings("2023-03-01 09:00", 96)
+    s["supplier_flag"] = ["Good"] * 90 + ["Suspect"] * 4 + ["Missing"] + ["Odd"]
+    s.loc[94, "value"] = np.nan
+    d = acc.daily_0900(s, min_complete=0.0).iloc[0]
+    assert (d["n_good"], d["n_suspect"], d["n_missing"], d["n_other"]) == (90, 4, 1, 1)
+    assert d["n_unchecked"] == 0 and d["n_estimated"] == 0
+    assert d["rain_mm"] == 23.75
+
+
+def test_a_daily_table_without_flag_counts_is_rebuilt(tmp_path):
+    # A table saved before the counts were added (no n_good column) is rebuilt on reading
+    cfg = make_cfg(tmp_path)
+    put_gauge(cfg, "A", [2022], 10, [2.0])
+    old = rain_charts.gauge_daily(cfg, "A").drop(columns=acc.FLAG_COLUMNS)
+    store.write_parquet(old, rain_charts._daily_path(cfg, "A"))
+    again = rain_charts.gauge_daily(cfg, "A")
+    assert again["n_good"].sum() == 31 * 96                     # every reading put is Good

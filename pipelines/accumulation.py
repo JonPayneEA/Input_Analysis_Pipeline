@@ -25,6 +25,12 @@ import numpy as np
 import pandas as pd
 
 STEPS_PER_DAY = 96          # 15-minute readings
+
+# The EA's quality flags, counted per day as n_good, n_estimated, ...; any other flag, or none,
+# counts as n_other. At Harley (000008), 1997 to 2026: 50% Unchecked, 42% Good, 8% Suspect,
+# 1% Missing (always without a value).
+EA_FLAGS = ("good", "estimated", "unchecked", "suspect", "missing")
+FLAG_COLUMNS = [f"n_{f}" for f in EA_FLAGS] + ["n_other"]
 RAIN_DAY_START_H = 9        # 09:00 UTC
 
 
@@ -44,8 +50,12 @@ def daily_0900(series, min_complete=0.95):
     Only readings on the 15-minute grid count. The EA record holds a few readings at other
     minutes (21 at gauge 000008 in 2024 and 2025, :50 and :55 past the hour), some of them
     impossible, such as 145 mm in one reading; summing them would double-count. The number
-    left out is kept in the result's `off_grid` attribute, and by day in its `off_grid` column."""
-    s = series.dropna(subset=["timestamp"]).copy()
+    left out is kept in the result's `off_grid` attribute, and by day in its `off_grid` column.
+
+    Each day also counts its readings by the EA's quality flag (`n_good`, `n_estimated`,
+    `n_unchecked`, `n_suspect`, `n_missing`, `n_other`), for quality control to weigh. No
+    reading is left out because of its flag here: that is quality control's decision."""
+    s = series.dropna(subset=["timestamp"]).reset_index(drop=True)
     # An empty table's timestamp column has no date type; give it one
     s["timestamp"] = pd.to_datetime(s["timestamp"], utc=True)
     on_grid = (s["timestamp"].dt.minute % 15 == 0) & (s["timestamp"].dt.second == 0)
@@ -60,6 +70,14 @@ def daily_0900(series, min_complete=0.95):
     })
     # Off-grid readings by the rain day they fell in, kept for the record
     out["off_grid"] = off_day.value_counts().reindex(out.index).fillna(0).astype(int)
+    # The EA's own judgement of the day's readings: how many carry each quality flag
+    flag = (s["supplier_flag"] if "supplier_flag" in s else pd.Series(None, index=s.index))
+    flag = flag.astype("object").where(flag.notna(), "").astype(str).str.strip().str.lower()
+    flag = flag.where(flag.isin(EA_FLAGS), "other")
+    counts = pd.crosstab(day, flag)
+    for f in (*EA_FLAGS, "other"):
+        col = counts[f] if f in counts else pd.Series(dtype=int)
+        out[f"n_{f}"] = col.reindex(out.index).fillna(0).astype(int)
     out.loc[out["complete"] < min_complete, "rain_mm"] = np.nan
     out.index.name = "date"
     out = out.reset_index()
