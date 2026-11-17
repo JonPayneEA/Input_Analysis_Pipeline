@@ -156,3 +156,60 @@ def test_backfill_asks_for_ten_years_at_a_time_by_default(tmp_path, no_sleep):
     assert [(p["mineq-date"], p["max-date"]) for p in asked] == [
         ("1971-03-01", "1981-03-01"), ("1981-03-01", "1991-03-01"),
         ("1991-03-01", "1993-05-02")]
+
+
+def test_lookback_stores_revisions_and_skips_unchanged_readings(tmp_path, no_sleep):
+    # Stored: three readings on 1 to 3 March. The EA then revises 2 March (0.4 to 0.6) and
+    # publishes 4 March. A 90-day look-back re-fetches all four; only the revision and the new
+    # reading are written, and one of the two is counted as revised (at or before the
+    # watermark of 3 March).
+    cfg = make_cfg(tmp_path)
+    store.write_registry(registry_for(["G1"]), cfg["registry_path"])
+    fake = FakeAPI({"G1": [("2023-03-01T00:00:00", 0.2, "Good"),
+                           ("2023-03-02T00:00:00", 0.4, "Good"),
+                           ("2023-03-03T00:00:00", 0.0, "Good")]})
+    rain_gauges.run_backfill(cfg, "2023-01-01", "2023-03-04", session=fake, sleep=no_sleep)
+    fake.series["G1"] = [("2023-03-01T00:00:00", 0.2, "Good"),
+                         ("2023-03-02T00:00:00", 0.6, "Good"),
+                         ("2023-03-03T00:00:00", 0.0, "Good"),
+                         ("2023-03-04T00:00:00", 1.0, "Good")]
+    log = rain_gauges.run_incremental(cfg, end_date="2023-03-05", session=fake,
+                                      sleep=no_sleep)
+    assert (log[0]["status"], log[0]["rows"], log[0]["revised"]) == ("SUCCESS", 2, 1)
+    series = store.read_series(cfg["store_root"], "G1")
+    assert series["value"].tolist() == [0.2, 0.6, 0.0, 1.0]   # the revision won
+    # A second run finds nothing new and nothing changed
+    again = rain_gauges.run_incremental(cfg, end_date="2023-03-05", session=fake,
+                                        sleep=no_sleep)
+    assert again[0]["status"] == "NO_NEW_DATA"
+
+
+def test_lookback_of_zero_starts_at_the_watermark(tmp_path, no_sleep):
+    # With no look-back, the request starts on the watermark's own day (3 March), so the
+    # revision on 2 March is not seen
+    cfg = make_cfg(tmp_path)
+    cfg["incremental"]["lookback_days"] = 0
+    store.write_registry(registry_for(["G1"]), cfg["registry_path"])
+    fake = FakeAPI({"G1": [("2023-03-02T00:00:00", 0.4, "Good"),
+                           ("2023-03-03T00:00:00", 0.0, "Good")]})
+    rain_gauges.run_backfill(cfg, "2023-01-01", "2023-03-04", session=fake, sleep=no_sleep)
+    fake.series["G1"] = [("2023-03-02T00:00:00", 0.6, "Good"),
+                         ("2023-03-03T00:00:00", 0.0, "Good")]
+    fake.calls.clear()
+    log = rain_gauges.run_incremental(cfg, end_date="2023-03-05", session=fake,
+                                      sleep=no_sleep)
+    assert log[0]["status"] == "NO_NEW_DATA"
+    assert [p["mineq-date"] for p in readings_requests(fake)] == ["2023-03-03"]
+
+
+def test_changed_rows_treats_missing_values_and_flags_as_equal():
+    import pandas as pd
+    ts = pd.to_datetime(["2023-01-01 00:00", "2023-01-01 00:15", "2023-01-01 00:30",
+                         "2023-01-01 00:45"], utc=True)
+    old = pd.DataFrame({"timestamp": ts[:3], "value": [0.2, float("nan"), 0.0],
+                        "supplier_flag": ["Good", None, None]})
+    new = pd.DataFrame({"timestamp": ts, "value": [0.2, float("nan"), 0.0, 0.4],
+                        "supplier_flag": ["Good", float("nan"), "Suspect", "Good"]})
+    out = store.changed_rows(new, old)
+    # 00:00 same; 00:15 missing in both; 00:30 flag changed; 00:45 new
+    assert out["timestamp"].tolist() == [ts[2], ts[3]]

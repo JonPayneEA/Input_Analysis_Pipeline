@@ -45,7 +45,7 @@ on an unrestricted one; H19, FEH SAAR and MOSES need a restricted volume of thei
 | 2 | `02_build_registry` | Once, and when gauges change | Lists every 15-minute rain gauge on the API and writes the registry; a rerun adds new gauges and keeps the rest |
 | 3 | `03_trial` | Once, before the backfill | Backfills a few gauges for one year, reads one back and estimates the full run's hours |
 | 4 | `04_backfill` | As a job until nothing is left | Backfills every gauge not yet done, chunk by chunk |
-| 5 | `05_incremental` | Daily, as a scheduled job | Fetches each gauge's new readings since its latest stored one |
+| 5 | `05_incremental` | Monthly, as a scheduled job, a few days after the EA's monthly release | Fetches each gauge's new readings, and any the EA has revised in the look-back period |
 
 **Read the trial before the backfill.** It shows whether the volume accepts the writes and how
 long a gauge-year takes. The EA asks for one request at a time, so the jobs make one request a
@@ -61,6 +61,13 @@ and averaged about 30 years: some 30,000 annual requests for 995 gauges, about 2
 register, the log and the registry's done flags. A stopped job loses at most one chunk; rerun
 it and it carries on. A gauge is done when it succeeded or the API holds nothing for it; a
 failed gauge stays to do, so the next run tries it again.
+
+**Monthly updates and revisions.** The EA publishes its checked 15-minute rain monthly, so
+`05_incremental` runs monthly. Each run re-fetches from `lookback_days` (default 90) before a
+gauge's latest stored reading, compares with what is stored, and writes only readings that are
+new or that the EA has changed since: a value or quality flag revised after publication. The
+log's `revised` column counts those. Unchanged readings are not written again. About 2 s a
+gauge, some 35 minutes a month for 995 gauges.
 
 **What is stored.** One Parquet file per gauge per observation year, at
 `bronze/hydrometric/EA/P/<year>/EA_<gauge>_P_<received date>.parquet`, with the columns

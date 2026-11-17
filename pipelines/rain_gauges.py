@@ -21,7 +21,7 @@ from pipelines import hydrology_api as api
 from pipelines import store
 
 BACKFILL_LOG = ["gauge_id", "data_type", "status", "rows", "elapsed_s", "error"]
-INCREMENTAL_LOG = ["run_at", "gauge_id", "watermark", "end_date", "status", "rows",
+INCREMENTAL_LOG = ["run_at", "gauge_id", "watermark", "end_date", "status", "rows", "revised",
                    "elapsed_s", "error"]
 
 
@@ -85,9 +85,11 @@ def record_window(bounds, start_date, end_date):
 
 
 def fetch_and_store(gauge, root, start_date, end_date, method, session=None, after=None,
-                    sleep=time.sleep, received_by=None, trim=False, years=1):
-    """Fetches one gauge and writes its Bronze files. Returns (rows stored, register rows).
-    `after` keeps only readings later than that timestamp (the incremental watermark).
+                    sleep=time.sleep, received_by=None, trim=False, years=1, existing=None):
+    """Fetches one gauge and writes its Bronze files. Returns (rows stored, register rows,
+    the rows stored). `after` keeps only readings later than that timestamp (the incremental
+    watermark). `existing`, the rows already stored for the period fetched, keeps only
+    readings that are new or differ from them, so a look-back stores revisions, not copies.
     `trim` first asks for the gauge's first and last readings and fetches only the years
     between, so start_date can be early without requesting empty years."""
     notation = _notation(gauge, session)
@@ -95,20 +97,22 @@ def fetch_and_store(gauge, root, start_date, end_date, method, session=None, aft
         window = record_window(api.reading_bounds(notation, session, sleep), start_date,
                                end_date)
         if window is None:
-            return 0, []
+            return 0, [], None
         start_date, end_date = window
     readings = api.fetch_series(notation, start_date, end_date, session, sleep, years)
     if not len(readings):
-        return 0, []
+        return 0, [], None
     ds_id = store.dataset_id(gauge["gauge_id"])
     bronze = store.to_bronze(readings, ds_id, gauge["gauge_id"])
     if after is not None:
         bronze = bronze[bronze["timestamp"] > after]
+    if existing is not None:
+        bronze = store.changed_rows(bronze, existing)
     if not len(bronze):
-        return 0, []
+        return 0, [], None
     files = store.write_bronze_by_year(bronze, root, "P", ds_id)
     return len(bronze), store.provenance_rows(files, ds_id, gauge["gauge_id"], "P", method,
-                                              received_by)
+                                              received_by), bronze
 
 
 def backfill_one(gauge, root, start_date, end_date, **kw):
@@ -119,7 +123,8 @@ def backfill_one(gauge, root, start_date, end_date, **kw):
         return {"gauge_id": gauge["gauge_id"], "data_type": "rainfall", "status": status,
                 "rows": rows, "elapsed_s": round(time.monotonic() - t0, 2), "error": error}
     try:
-        n, prov = fetch_and_store(gauge, root, start_date, end_date, "HDE", trim=True, **kw)
+        n, prov, _ = fetch_and_store(gauge, root, start_date, end_date, "HDE", trim=True,
+                                     **kw)
         return (row("SUCCESS", n), prov) if n else (row("EMPTY"), [])
     except Exception as e:  # noqa: BLE001 - logged as FAILED and retried next run
         return row("FAILED", error=str(e)), []
@@ -157,27 +162,38 @@ def run_backfill(cfg, start_date, end_date, registry=None, log_name="backfill_lo
     return log_all
 
 
-def incremental_one(gauge, root, end_date, default_start, run_at, **kw):
-    """One gauge's update from its high watermark: a log row and register rows."""
+def incremental_one(gauge, root, end_date, default_start, run_at, lookback_days=0, **kw):
+    """One gauge's update: a log row and register rows.
+
+    From the high watermark (the latest stored reading), or, with `lookback_days`, from that
+    many days before it, so readings the EA has revised since they were stored come in again.
+    Only readings that are new or differ from the stored ones are written; `revised` counts
+    those at or before the watermark."""
     t0 = time.monotonic()
     hwm = store.high_watermark(root, gauge["gauge_id"])
     mark = None if hwm is None else hwm.strftime("%Y-%m-%d %H:%M:%S")
 
-    def row(status, rows=0, error=None):
+    def row(status, rows=0, revised=0, error=None):
         return {"run_at": run_at, "gauge_id": gauge["gauge_id"], "watermark": mark,
-                "end_date": end_date, "status": status, "rows": rows,
+                "end_date": end_date, "status": status, "rows": rows, "revised": revised,
                 "elapsed_s": round(time.monotonic() - t0, 2), "error": error}
     try:
-        # Start on the watermark's own day (the API works in dates); older rows are dropped
-        start = default_start if hwm is None else hwm.date().isoformat()
-        if hwm is not None and hwm.date() >= date.fromisoformat(end_date):
+        if hwm is None:
+            # Nothing stored yet: start from the gauge's own first reading
+            n, prov, _ = fetch_and_store(gauge, root, default_start, end_date,
+                                         "HDE incremental", trim=True, **kw)
+            return (row("SUCCESS", n), prov) if n else (row("EMPTY"), [])
+        # Start on the watermark's own day (the API works in dates), less the look-back
+        since = (hwm - pd.Timedelta(days=lookback_days)).normalize()
+        if since.date() >= date.fromisoformat(end_date):
             return row("NO_NEW_DATA"), []
-        # A gauge with nothing stored yet starts from its own first reading
-        n, prov = fetch_and_store(gauge, root, start, end_date, "HDE incremental",
-                                  after=hwm, trim=hwm is None, **kw)
-        if n:
-            return row("SUCCESS", n), prov
-        return row("NO_NEW_DATA" if hwm is not None else "EMPTY"), []
+        existing = store.read_series(root, gauge["gauge_id"], since=since)
+        n, prov, kept = fetch_and_store(gauge, root, since.date().isoformat(), end_date,
+                                        "HDE incremental", existing=existing, **kw)
+        if not n:
+            return row("NO_NEW_DATA"), []
+        revised = int((kept["timestamp"] <= hwm).sum())
+        return row("SUCCESS", n, revised), prov
     except Exception as e:  # noqa: BLE001 - logged as FAILED and retried next run
         return row("FAILED", error=str(e)), []
 
@@ -190,6 +206,7 @@ def run_incremental(cfg, end_date=None, **kw):
     end_date = end_date or (store.utc_today() + timedelta(days=1)).isoformat()
     run_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     default_start = cfg["incremental"].get("default_start", cfg["backfill"]["start_date"])
+    kw.setdefault("lookback_days", cfg["incremental"].get("lookback_days", 90))
     log, prov = [], []
     for gauge in reg.to_dict("records"):
         r, p = incremental_one(gauge, cfg["store_root"], end_date, default_start, run_at, **kw)

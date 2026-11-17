@@ -26,4 +26,6 @@ backfill:
 
 incremental:
   default_start: "1900-01-01"   # for a gauge with nothing stored yet
+  lookback_days: 90             # re-fetch this many days before the latest stored reading, so
+                                # readings the EA revises after publishing are picked up
 
