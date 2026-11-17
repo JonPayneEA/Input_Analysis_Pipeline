@@ -51,7 +51,7 @@ on an unrestricted one; H19, FEH SAAR and MOSES need a restricted volume of thei
 | 4 | `04_backfill` | As a job until nothing is left | Backfills every gauge not yet done, chunk by chunk |
 | 5 | `05_incremental` | Monthly, as a scheduled job, a few days after the EA's monthly release | Fetches each gauge's new readings, and any the EA has revised in the look-back period |
 | 6 | `06_haduk_extract` | Once, then after each HadUK-Grid release | Gauge positions, then HadUK-Grid daily rainfall for every gauge's 1 km cell and every configured area |
-| 7 | `07_rainfall_accumulation` | Monthly, after the update | Accumulation charts for chosen gauges and areas, and a table of where every gauge's month stands |
+| 7 | `07_rainfall_accumulation` | Whenever wanted | Accumulation charts chosen from drop-downs (gauge or area, period, start year and month), and a table of where every gauge stands |
 
 **Read the trial before the backfill.** It shows whether the volume accepts the writes and how
 long a gauge-year takes. The EA asks for one request at a time, so the jobs make one request a
@@ -105,6 +105,15 @@ the reference lines from earlier years, the 1991-2020 mean (or, for a record tha
 the mean of all its years), the 5, 10, 90 and 95% lines, and the lowest and highest. Shaded
 blue where the month is above the mean, orange below.
 
+- **Choosing a chart.** Drop-downs at the top of `07_rainfall_accumulation` choose the gauge
+  (type to search by id or name), the area, the period and its start year and month. Periods: a
+  month; three, six or twelve months from the start month (three from December is the winter);
+  the water year, October to September, named by the year it starts; or the calendar year. To
+  redraw on every change, set the widget panel's "On widget change" to "Run notebook".
+- **Only readings on the 15-minute grid count.** The EA record holds a few readings at other
+  minutes (21 at Harley in 2024 and 2025, some as large as 145 mm in a reading); summing them
+  would double-count, so they are left out and counted in the chart's footnote. The Bronze store
+  keeps them as received.
 - **Rain days run 09:00 to 09:00 UTC**, named by the day they start, as in HadUK-Grid. A day
   counts only with 95% of its 96 readings (`accumulation.min_complete`), and a month counts
   towards the reference lines only if every day does, so a gap is never taken for a dry spell.
@@ -118,6 +127,13 @@ blue where the month is above the mean, orange below.
 - **The month table** ranks every gauge's month among its own years (0 driest, 1 wettest)
   beside the median rank of its five nearest gauges. A gauge far from its neighbours
   (`odd_one_out`) has more likely failed than seen unusual weather.
+
+**Daily tables.** The charts and the gauge table read each gauge's daily totals from
+`gold/rain_daily/<gauge>.parquet`, about 11,000 rows for 30 years, not the million or so
+15-minute readings behind them. A table is rebuilt whenever the gauge's Bronze files are newer
+than it, and `05_incremental` rebuilds the changed ones after each update. The first build of
+all 995 takes a while; after that a chart takes about a second and the gauge table a minute or
+two. The completeness threshold is applied on reading, so changing it needs no rebuild.
 
 HadUK-Grid is read once by `06_haduk_extract` into one Parquet file a year under
 `gold/haduk/rainfall_daily/`: reading the NetCDF files for every chart would be far too slow.

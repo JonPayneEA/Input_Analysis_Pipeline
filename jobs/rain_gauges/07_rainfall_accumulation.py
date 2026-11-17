@@ -1,8 +1,8 @@
 # Databricks notebook source
 # ============================================================
 # Tool:         07 rainfall accumulation
-# Description:  Monthly rainfall accumulation charts in the Met Office style, for gauges, catchments
-#               and areas, and a table of where every gauge's month stands
+# Description:  Rainfall accumulation charts in the Met Office style for a gauge or an area,
+#               chosen from drop-downs, over a month, season, water year or calendar year
 # Flode Module: Input_Analysis_Pipeline
 # Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-17
@@ -42,45 +42,72 @@ cfg = load_config(_root)
 
 # COMMAND ----------
 
-# Choose the month and what to draw. GAUGES and AREAS may be empty; AREAS uses the ids in the
-# config's areas list. ALL_GAUGES draws a chart for every gauge (about 1,000 PNGs).
-YEAR, MONTH = 2026, 10
-GAUGES = ["000008"]
-AREAS = []
-ALL_GAUGES = False
+# MAGIC %md
+# MAGIC ## Choose a chart
+# MAGIC The drop-downs at the top of the notebook choose what to draw. Type in the gauge box to
+# MAGIC search by id or name. To redraw as soon as a choice changes, open the widget settings
+# MAGIC (the cog at the right of the widget bar) and set "On widget change" to "Run notebook";
+# MAGIC otherwise choose, then press Run all.
+# MAGIC
+# MAGIC Periods: a month; three, six or twelve months from the start month (three from December
+# MAGIC is the winter); the water year, October to September, named by the year it starts; or
+# MAGIC the calendar year. A period still in progress is drawn to its latest day.
 
 # COMMAND ----------
 
-import matplotlib.pyplot as plt  # noqa: E402
+import calendar  # noqa: E402
 
-for g in GAUGES:
-    fig, summary = rain_charts.gauge_chart(cfg, g, YEAR, MONTH)
+import matplotlib.pyplot as plt  # noqa: E402
+import pandas as pd  # noqa: E402
+
+now = pd.Timestamp.now(tz="UTC")
+gauges = rain_charts.gauge_choices(cfg)
+areas = [f"{a['id']} - {a.get('name', a['id'])}" for a in cfg.get("areas", []) or []]
+if not gauges:
+    raise RuntimeError("No gauges with records: run the backfill (04) and 06_haduk_extract")
+default_gauge = gauges[0]
+w = dbutils.widgets  # noqa: F821 - Databricks notebooks provide dbutils
+w.dropdown("chart", "Gauge", ["Gauge", "Area", "Both"], "1. Chart")
+w.combobox("gauge", default_gauge, gauges, "2. Gauge")
+w.dropdown("area", areas[0] if areas else "(none)", areas or ["(none)"], "3. Area")
+w.dropdown("period", "Month", list(rain_charts.PERIODS), "4. Period")
+w.dropdown("year", str(now.year), [str(y) for y in range(now.year, 1960, -1)], "5. Start year")
+w.dropdown("month", calendar.month_name[now.month], list(calendar.month_name)[1:],
+           "6. Start month")
+w.dropdown("table", "No", ["No", "Yes"], "7. Gauge table (slow)")
+
+# COMMAND ----------
+
+first_month, n_months = rain_charts.PERIODS[w.get("period")]
+year = int(w.get("year"))
+month = first_month or list(calendar.month_name).index(w.get("month"))
+print("Drawing", rain_charts.period_label(year, month, n_months))
+
+if w.get("chart") in ("Gauge", "Both"):
+    fig, summary = rain_charts.gauge_chart(cfg, rain_charts.choice_id(w.get("gauge")), year,
+                                           month, n_months=n_months)
     print(summary)
     display(fig)  # noqa: F821 - Databricks notebooks provide display()
     plt.close(fig)
 
-for a in AREAS:
-    fig, summary = rain_charts.area_chart(cfg, a, YEAR, MONTH)
+if w.get("chart") in ("Area", "Both") and areas:
+    fig, summary = rain_charts.area_chart(cfg, rain_charts.choice_id(w.get("area")), year,
+                                          month, n_months=n_months)
     print(summary)
     display(fig)  # noqa: F821
     plt.close(fig)
 
 # COMMAND ----------
 
-# Every gauge's month against its own record and its five nearest neighbours. A gauge whose
+# Every gauge's period against its own record and its five nearest neighbours. A gauge whose
 # rank sits far from its neighbours' (odd_one_out) has more likely failed than seen unusual
 # weather: check it before using it. Reads every gauge's record: allow some minutes.
-table = rain_charts.month_table(cfg, YEAR, MONTH)
-out = f"{cfg['store_root']}/gold/charts/accumulation/{YEAR}-{MONTH:02d}/month_table.csv"
-table.to_csv(out, index=False)
-print(table["standing"].value_counts())
-print("Odd ones out:")
-print(table[table["odd_one_out"]])
-
-# COMMAND ----------
-
-if ALL_GAUGES:
-    for g in table["gauge_id"]:
-        fig, _ = rain_charts.gauge_chart(cfg, g, YEAR, MONTH)
-        plt.close(fig)
-    print("Charts saved under", f"{cfg['store_root']}/gold/charts/accumulation/{YEAR}-{MONTH:02d}/")
+if w.get("table") == "Yes":
+    table = rain_charts.month_table(cfg, year, month, n_months=n_months)
+    folder = f"{cfg['store_root']}/gold/charts/accumulation/{year}-{month:02d}"
+    folder += f"_{n_months}m" if n_months > 1 else ""
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    table.to_csv(f"{folder}/gauge_table.csv", index=False)
+    print(table["standing"].value_counts())
+    print("Odd ones out:")
+    display(table[table["odd_one_out"]])  # noqa: F821
