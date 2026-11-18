@@ -164,8 +164,21 @@ At Harley (000008) stage 1 rejects the 10 days holding its 21 off-grid readings,
 days the EA flagged Suspect, and finds the tip resolution changing from 0.2 mm to 0.01 mm on
 1 August 2024: a new instrument, logger or processing, which splits the record.
 
-Stages 2 and 3, to come: checks against neighbouring gauges and HadUK-Grid (daily agreement,
-long-term ratios, timing), then tests on whole records (breakpoints).
+Stage 2 checks each gauge's daily totals against HadUK-Grid at its 1 km cell and against the
+median of its five nearest gauges within 30 km: dry when they are wet, wet when they are dry,
+out by more than three times, months under half or over twice, and years shifted by a day. Each
+neighbour is first brought to the gauge's own long-term level, so a hill gauge is not flagged
+for being wetter than the valley (Langsett takes about 1.5 times its neighbours' rain: 58
+months flagged unscaled, 5 scaled). All stage-2 flags are suspect. Results in
+`gold/qc/stage2/`; `rain_qc.day_flags()` combines both stages.
+
+Six real gauges round Harley, 1997 to 2026, gave 27 months off in about 1,800: months near zero
+against wet neighbours (Wombwell March 2002, Ringinglow February 2010, Woodhouse Mill August
+2004, Harley July 2001 and November 2024), and mostly summer months too wet, often real storms.
+All six change tip resolution between 2023 and 2026, a change across the EA network.
+
+Stage 3, to come: tests on whole records against HadUK-Grid and SAAR (long-term ratios, trends,
+breakpoints).
 
 ## Testing
 
