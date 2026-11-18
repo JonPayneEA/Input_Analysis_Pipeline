@@ -233,6 +233,45 @@ def test_gauge_chart_and_month_table(tmp_path):
     assert table.at["D", "odd_one_out"] and not table.at["A", "odd_one_out"]
 
 
+def put_days(cfg, gid, start, mm_per_day):
+    """Whole 09:00 rain days of 15-minute readings from `start`, `mm_per_day[k]` on day k."""
+    t0 = pd.Timestamp(start) + pd.Timedelta(hours=9)
+    s = pd.concat([readings(t0 + pd.Timedelta(days=k), 96, r / 96)
+                   for k, r in enumerate(mm_per_day)], ignore_index=True)
+    ds = store.dataset_id(gid)
+    store.write_bronze_by_year(store.to_bronze(
+        pd.DataFrame({"dateTime": s["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                      "value": s["value"], "quality": "Good"}), ds, gid), cfg["store_root"],
+        "P", ds)
+
+
+def test_month_table_ranks_neighbours_over_the_gauges_own_days(tmp_path):
+    # Octobers 2019-2022 at 1, 2, 1.5 and 2.5 mm a day at all four gauges. October 2023: 5 mm a
+    # day on days 1 to 9 and nothing after, at A, B and C to the 31st; E stops after day 9.
+    # On day 9, 2023 holds 45 mm against 9, 18, 13.5 and 22.5: every gauge ranks 1.0.
+    # On day 31, A, B and C hold 45 mm against 31, 62, 46.5 and 77.5: rank 1/4 = 0.25.
+    # The old table set E's day-9 rank (1.0) against its neighbours' day-31 ranks (0.25), a
+    # gap of 0.75, and called E an odd one out. Over the same nine days there is no gap.
+    cfg = make_cfg(tmp_path)
+    years = [2019, 2020, 2021, 2022]
+    for gid in ("A", "B", "C", "E"):
+        put_gauge(cfg, gid, years, 10, [1.0, 2.0, 1.5, 2.5])
+    for gid in ("A", "B", "C"):
+        put_days(cfg, gid, "2023-10-01", [5.0] * 9 + [0.0] * 22)
+    put_days(cfg, "E", "2023-10-01", [5.0] * 9)
+    loc = pd.DataFrame({"wiski_id": list("ABCE"), "label": list("ABCE"),
+                        "easting": [400000, 401000, 402000, 403000], "northing": 500000})
+    store.write_csv(loc, rain_charts._paths(cfg)["locations"])
+    table = rain_charts.month_table(cfg, 2023, 10, neighbours=3).set_index("gauge_id")
+    assert table.at["E", "days"] == 9 and table.at["E", "rank"] == 1.0
+    assert table.at["E", "neighbour_rank"] == 1.0 and table.at["E", "neighbours_used"] == 3
+    assert not table.at["E", "odd_one_out"]
+    assert table.at["E", "behind"] and not table.at["A", "behind"]
+    # A on day 31 is set against B and C only: E has no day 31
+    assert table.at["A", "rank"] == 0.25 and table.at["A", "neighbours_used"] == 2
+    assert table.at["A", "neighbour_rank"] == 0.25
+
+
 def test_area_rain_from_gauges_shares_a_missing_gauges_weight(tmp_path):
     # Two gauges, each nearest half the cells. In October 2023 gauge B has no readings after
     # the 10th, so from the 11th the area takes A's rain alone.
