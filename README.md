@@ -177,8 +177,16 @@ against wet neighbours (Wombwell March 2002, Ringinglow February 2010, Woodhouse
 2004, Harley July 2001 and November 2024), and mostly summer months too wet, often real storms.
 All six change tip resolution between 2023 and 2026, a change across the EA network.
 
-Stage 3, to come: tests on whole records against HadUK-Grid and SAAR (long-term ratios, trends,
-breakpoints).
+Stage 3 checks whole records, month by month, against HadUK-Grid and the neighbours: the
+typical ratio with an interval from resampling water years, winter against summer, the trend
+per decade (Sen's slope) and the largest step (Pettitt's test); and the long-term mean against
+SAAR moved to the gauge's years with HadUK-Grid (`qc.saar_csv`, on a restricted volume), else
+against HadUK-Grid. It ports reach.forcing's `ratio_checks()` and `longterm_ratios()`, and its
+tests are theirs, with the same answers. Results in `gold/qc/stage3/`.
+
+At Cannon Hall (085322) the annual ratio to its neighbours averages 1.005 to 2011 and is above
+1 in every year from 2012, averaging 1.088: a step of 9%, found by Pettitt's test, when
+something changed at the gauge.
 
 ## Testing
 

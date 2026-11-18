@@ -62,4 +62,7 @@ qc:
   hour_share_max: 0.2
   weekend_ratio_range: [0.5, 1.5]
   min_wet_readings: 200             # judge hour and weekend patterns only with this many
+  # Stage 3: SAAR by gauge for the long-term check, a CSV of gauge_id and saar_mm. SAAR is
+  # restricted: the file must sit on a restricted volume. Empty: compare with HadUK-Grid only.
+  saar_csv: ""
 
