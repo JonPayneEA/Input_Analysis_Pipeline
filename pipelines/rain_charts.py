@@ -353,15 +353,36 @@ def area_chart(cfg, area_id, year, month, save=True, n_months=1):
 # ---- Every gauge in one table --------------------------------------------------------------
 
 
+def _ranks_by_day(m, year):
+    """The period's rank among the gauge's other years on every day of it so far (0 driest to
+    1 wettest): day d's rank is the share of other years whose running total on day d is
+    below this year's. NaN from the first day this year has no running total."""
+    cur = m.loc[year]
+    others = m.drop(index=year)
+    out = np.full(len(m.columns), np.nan)
+    for k, d in enumerate(m.columns):
+        if pd.isna(cur[d]):
+            break
+        o = others[d].dropna()
+        if len(o):
+            out[k] = float((o < cur[d]).mean())
+    return pd.Series(out, index=m.columns)
+
+
 def month_table(cfg, year, month, neighbours=5, n_months=1):
     """Where every gauge's month stands: its total, the share of its mean, its standing, and
     its rank among its own years (0 driest to 1 wettest) beside the median rank of its
     `neighbours` nearest gauges. A gauge far from its neighbours (`odd_one_out`, ranks more
-    than 0.6 apart) has more likely failed than met unusual weather."""
+    than 0.6 apart) has more likely failed than met unusual weather.
+
+    Gauges are compared over the same days: a gauge whose readings stop on day 9 is set
+    against its neighbours' ranks on day 9, its neighbours chosen from the gauges that report
+    that far. `behind` marks gauges whose readings stop before the latest day any gauge
+    reaches, which points to a telemetry fault or a delay in publishing."""
     s = _settings(cfg)
     loc = load_locations(cfg)
     index = store.file_index(cfg["store_root"])
-    rows = []
+    rows, ranks = [], {}
     for g in loc.index:
         if g not in index:
             continue
@@ -376,22 +397,34 @@ def month_table(cfg, year, month, neighbours=5, n_months=1):
         last = cur.last_valid_index()
         if last is None or ref.attrs["years"] < min(5, s["min_years"]):
             continue
-        others = m.drop(index=year)[last].dropna()
+        by_day = _ranks_by_day(m, year)
+        ranks[g] = by_day
         total = cur[last]
         rows.append({"gauge_id": g, "name": loc.at[g, "label"], "days": last,
                      "total_mm": round(total, 1),
                      "share_of_mean": round(total / ref.at[last, "mean"], 2)
                      if ref.at[last, "mean"] else np.nan,
                      "standing": acc.standing(total, ref.loc[last]),
-                     "rank": round(float((others < total).mean()), 2),
+                     "rank": round(float(by_day[last]), 2),
                      "years": ref.attrs["years"]})
     table = pd.DataFrame(rows)
     if not len(table):
         return table
-    xy = loc.loc[table["gauge_id"], ["easting", "northing"]].to_numpy(dtype=float)
+    ids = table["gauge_id"].tolist()
+    days = table["days"].to_numpy()
+    xy = loc.loc[ids, ["easting", "northing"]].to_numpy(dtype=float)
     d2 = ((xy[:, None, :] - xy[None, :, :]) ** 2).sum(axis=2)
     np.fill_diagonal(d2, np.inf)
-    near = np.argsort(d2, axis=1)[:, :neighbours]
-    table["neighbour_rank"] = np.round(np.median(table["rank"].to_numpy()[near], axis=1), 2)
+    nb_rank, nb_used = [], []
+    for i in range(len(ids)):
+        # The nearest gauges that report as far as this one, ranked on this one's last day
+        order = [j for j in np.argsort(d2[i]) if np.isfinite(d2[i, j]) and days[j] >= days[i]]
+        vals = [ranks[ids[j]][days[i]] for j in order[:neighbours]]
+        vals = [v for v in vals if np.isfinite(v)]
+        nb_rank.append(round(float(np.median(vals)), 2) if vals else np.nan)
+        nb_used.append(len(vals))
+    table["neighbour_rank"] = nb_rank
+    table["neighbours_used"] = nb_used
     table["odd_one_out"] = (table["rank"] - table["neighbour_rank"]).abs() > 0.6
+    table["behind"] = table["days"] < table["days"].max()
     return table.sort_values("rank").reset_index(drop=True)

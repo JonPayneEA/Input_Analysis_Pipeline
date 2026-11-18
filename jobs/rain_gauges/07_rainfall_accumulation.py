@@ -103,9 +103,10 @@ if ch["chart"] in ("Area", "Both") and ch["area"] != "(none)":
 
 # COMMAND ----------
 
-# Every gauge's period against its own record and its five nearest neighbours. A gauge whose
-# rank sits far from its neighbours' (odd_one_out) has more likely failed than seen unusual
-# weather: check it before using it. Reads every gauge's record: allow some minutes.
+# Every gauge's period against its own record and its five nearest neighbours, over the same
+# days. A gauge whose rank sits far from its neighbours' (odd_one_out) has more likely failed
+# than seen unusual weather: check it before using it. A gauge `behind` stopped reporting
+# before the rest. Reads every gauge's record: allow some minutes.
 if "cfg" not in globals():
     raise RuntimeError("Python has restarted since the set-up cells ran: press Run all")
 ch = rain_charts.read_choices(dbutils.widgets.get)  # noqa: F821
@@ -117,5 +118,8 @@ if ch["table"]:
     Path(folder).mkdir(parents=True, exist_ok=True)
     table.to_csv(f"{folder}/gauge_table.csv", index=False)
     print(table["standing"].value_counts())
+    behind = table[table["behind"]]
+    print(f"{len(behind)} of {len(table)} gauges stop before day {table['days'].max()}:")
+    print(behind["days"].value_counts().sort_index(ascending=False).to_string())
     print("Odd ones out:")
     display(table[table["odd_one_out"]])  # noqa: F821

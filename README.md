@@ -127,7 +127,11 @@ blue where the month is above the mean, orange below.
   grid, a failed gauge's weight shared among the others as in the operational scheme.
 - **The month table** ranks every gauge's month among its own years (0 driest, 1 wettest)
   beside the median rank of its five nearest gauges. A gauge far from its neighbours
-  (`odd_one_out`) has more likely failed than seen unusual weather.
+  (`odd_one_out`) has more likely failed than seen unusual weather. Gauges are compared over
+  the same days: a gauge whose readings stop on the 9th is ranked against its neighbours on
+  the 9th, its neighbours chosen from the gauges that report that far (`neighbours_used`).
+  `behind` marks a gauge that stops before the rest, a sign of a telemetry fault or a delay
+  in publishing.
 
 **Daily tables.** The charts and the gauge table read each gauge's daily totals from
 `gold/rain_daily/<gauge>.parquet`, about 11,000 rows for 30 years, not the million or so
