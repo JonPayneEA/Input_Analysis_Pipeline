@@ -1,14 +1,15 @@
 # Databricks notebook source
 # ============================================================
-# Tool:         08 rain gauge QC, stage 1
-# Description:  Single-gauge quality control over the network (Lewis et al. 2018, 2021): flags
-#               readings and days, and reports each gauge's years; run after each update
+# Tool:         08 rain gauge QC
+# Description:  Quality control over the network (Lewis et al. 2018, 2021). Stage 1: each
+#               gauge's own record. Stage 2: against HadUK-Grid and neighbouring gauges
 # Flode Module: Input_Analysis_Pipeline
 # Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-18
 # Tier:         1
 # Inputs:       The Bronze rain store; the qc section of the config (optional)
-# Outputs:      gold/qc/{readings,days,years}/<gauge>.parquet; gold/qc/summary.csv
+# Outputs:      gold/qc/{readings,days,years}/<gauge>.parquet; gold/qc/summary.csv;
+#               gold/qc/stage2/{days,months,years}.parquet and summary.csv
 # Dependencies: pandas, pyarrow (in the Databricks runtime)
 # ============================================================
 
@@ -93,3 +94,44 @@ display(rain_qc.day_flags(cfg, GAUGE))  # noqa: F821
 import pyarrow.parquet as pq  # noqa: E402
 
 display(pq.read_table(rain_qc._path(cfg, "years", GAUGE)).to_pandas())  # noqa: F821
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Stage 2: against HadUK-Grid and neighbouring gauges
+# MAGIC Each gauge's daily totals against two references: HadUK-Grid at its 1 km cell (to the
+# MAGIC end of the HadUK files) and the median of its five nearest gauges within 30 km, each
+# MAGIC first brought to the gauge's own long-term level so a hill gauge is not flagged for
+# MAGIC being wetter than the valley. Days rejected at stage 1 are left out of the medians. All
+# MAGIC flags are suspect (3): a summer storm can hit one gauge and miss its neighbours.
+# MAGIC
+# MAGIC | Rule | Raised when |
+# MAGIC |---|---|
+# MAGIC | `nb_dry`, `haduk_dry` | The gauge has 0.2 mm or less; the reference 5 mm or more |
+# MAGIC | `nb_wet`, `haduk_wet` | The gauge has 20 mm or more while the reference has under 1 mm |
+# MAGIC | `nb_factor`, `haduk_factor` | Both have 5 mm or more and differ by more than 3 times |
+# MAGIC | months | A month's total under half or over twice the reference's (reference 20 mm+) |
+# MAGIC | shifted years | The record lines up better a day or two early or late |
+# MAGIC
+# MAGIC Months near zero against wet references are the strongest sign of a blocked or failed
+# MAGIC gauge; wet summer months are often real storms.
+
+# COMMAND ----------
+
+# Reads every gauge's daily totals and its HadUK-Grid cell at once: allow some minutes
+summary2 = rain_qc.run_stage2(cfg)
+display(summary2.head(30))  # noqa: F821
+
+# COMMAND ----------
+
+import pandas as pd  # noqa: E402
+
+months = pd.read_parquet(f"{cfg['store_root']}/gold/qc/stage2/months.parquet")
+off = months[months["flag"] == 3].sort_values("ratio")
+print(len(off), "months off, of", len(months), "judged")
+print("The driest against their references (blocked or failed gauges):")
+display(off.head(30))  # noqa: F821
+years = pd.read_parquet(f"{cfg['store_root']}/gold/qc/stage2/years.parquet")
+print("Years shifted by a day or two against the neighbours:")
+display(years[years["shifted"]])  # noqa: F821
+
