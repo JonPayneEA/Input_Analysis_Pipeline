@@ -3,7 +3,8 @@
 # Tool:         08 rain gauge QC
 # Description:  Quality control over the network (Lewis et al. 2018, 2021). Stage 1: each
 #               gauge's own record. Stage 2: against HadUK-Grid and neighbouring gauges.
-#               Stage 3: whole records, their level, trends and steps
+#               Stage 3: whole records, their level, trends and steps. Gauge swaps: the
+#               step in level when a tipping bucket gives way to a Rain[e]
 # Flode Module: Input_Analysis_Pipeline
 # Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-18
@@ -11,7 +12,8 @@
 # Inputs:       The Bronze rain store; the qc section of the config (optional)
 # Outputs:      gold/qc/{readings,days,years}/<gauge>.parquet; gold/qc/summary.csv;
 #               gold/qc/stage2/{days,months,years}.parquet and summary.csv;
-#               gold/qc/stage3/checks.parquet and summary.csv
+#               gold/qc/stage3/checks.parquet and summary.csv;
+#               gold/qc/swap/dates.csv and steps.csv
 # Dependencies: pandas, pyarrow (in the Databricks runtime)
 # ============================================================
 
@@ -166,3 +168,33 @@ summary3 = rain_qc.run_stage3(cfg)
 print((summary3["flags"] > 0).sum(), "of", len(summary3), "gauges with a whole-record flag")
 display(summary3.head(40))  # noqa: F821
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Gauge swaps: tipping bucket to Rain[e]
+# MAGIC A bucket reports whole tips of 0.2 mm; the Rain[e] much finer amounts. The swap date is
+# MAGIC where a gauge stops reporting whole tips, or the install register if `qc.swap_csv`
+# MAGIC names one (gauge_id, swap_date).
+# MAGIC
+# MAGIC The step: the gauge's ratio to each neighbour still on a bucket, over up to two whole
+# MAGIC years after the swap against the years before, less 1. The neighbour's own level cancels.
+# MAGIC `nb_noise_pct` is how far the same comparison moves at earlier dates when nothing
+# MAGIC changed; `nb_flag` is `up` or `down` when the step is at least twice that. `haduk_*` is
+# MAGIC the same against HadUK-Grid at the gauge's cell, weaker since the gauge feeds it.
+# MAGIC
+# MAGIC Gauges that swapped less than a year ago have no step yet (`years` 0).
+
+# COMMAND ----------
+
+swaps = rain_qc.run_swaps(cfg)
+measured = swaps.dropna(subset=["nb_step_pct"]) if len(swaps) else swaps
+print(f"{len(swaps)} gauges left whole tips; {len(measured)} with a step against neighbours")
+if len(swaps):
+    print("Swaps by year:", swaps["swap_date"].map(lambda d: d.year).value_counts()
+          .sort_index().to_dict())
+if len(measured):
+    q = measured["nb_step_pct"].quantile([0.25, 0.5, 0.75]).round(1).tolist()
+    print(f"Step against unchanged neighbours, per cent: median {q[1]}, middle half {q[0]} "
+          f"to {q[2]}")
+    print("Flagged:", measured["nb_flag"].value_counts().to_dict())
+display(swaps.head(40))  # noqa: F821

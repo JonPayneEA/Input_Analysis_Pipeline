@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from pipelines import qc, qc2, qc3, store
+from pipelines import qc, qc2, qc3, qc_swap, store
 
 KINDS = ("readings", "days", "years")
 
@@ -297,3 +297,108 @@ def run_stage3(cfg):
     store.write_csv(summary, f"{cfg['store_root']}/gold/qc/stage3/summary.csv")
     return summary
 
+
+
+# ---- Gauge swaps: the step in level when a tipping bucket gives way to a finer gauge -------
+
+
+def _swap_register(cfg):
+    """Swap dates from the optional CSV (gauge_id, swap_date) the config names under
+    qc.swap_csv: the hydrometry team's install register, which beats dates read from the
+    readings."""
+    path = ((cfg.get("qc", {}) or {}).get("swap_csv") or "")
+    if not path:
+        return {}
+    s = pd.read_csv(path, dtype={"gauge_id": str})
+    return dict(zip(s["gauge_id"], pd.to_datetime(s["swap_date"]), strict=True))
+
+
+def swap_dates(cfg, ids, index):
+    """Each gauge's swap date and its source (register or readings). Read from the readings
+    only for gauges whose stage-1 years show a change of resolution (run stage 1 first), and
+    kept in gold/qc/swap/dates.csv until their Bronze files change."""
+    path = f"{cfg['store_root']}/gold/qc/swap/dates.csv"
+    cached = {}
+    if Path(path).exists():
+        c = pd.read_csv(path, dtype={"gauge_id": str})
+        cached = {r.gauge_id: r for r in c.itertuples()}
+    register = _swap_register(cfg)
+    rows = []
+    for g in ids:
+        if g in register:
+            rows.append({"gauge_id": g, "swap_date": register[g], "source": "register",
+                         "bronze_mtime": np.nan})
+            continue
+        p = _path(cfg, "years", g)
+        if not p.exists():
+            continue
+        years = pq.read_table(p, columns=["resolution_change"]).to_pandas()
+        if not years["resolution_change"].any():
+            continue
+        files = index.get(g, [])
+        if not files:
+            continue
+        newest = round(max(f.stat().st_mtime for f in files), 3)
+        old = cached.get(g)
+        if old is not None and old.source == "readings" and old.bronze_mtime == newest:
+            date = pd.to_datetime(old.swap_date)
+        else:
+            date = qc_swap.swap_date(store.read_series(cfg["store_root"], g, files=files), cfg)
+        rows.append({"gauge_id": g, "swap_date": date, "source": "readings",
+                     "bronze_mtime": newest})
+    out = pd.DataFrame(rows, columns=["gauge_id", "swap_date", "source", "bronze_mtime"])
+    store.write_csv(out, path)
+    return out
+
+
+def run_swaps(cfg, gauges=None):
+    """The step at each swapped gauge against its nearest neighbours that did not change in the
+    years either side (at most qc.neighbours within qc.neighbour_max_km) and against HadUK-Grid
+    at its cell. Writes gold/qc/swap/dates.csv and steps.csv and returns the steps, largest
+    first. Steps are in per cent; noise is the same comparison at earlier dates."""
+    from pipelines import rain_charts
+    st2 = qc2.settings2(cfg)
+    loc = rain_charts.load_locations(cfg)
+    reg = [str(g) for g in store.read_registry(cfg["registry_path"])["gauge_id"]]
+    ids = [g for g in (gauges or reg) if g in loc.index]
+    index = store.file_index(cfg["store_root"])
+    print("Dating swaps...", flush=True)
+    dates = swap_dates(cfg, ids, index)
+    swapped = dates.dropna(subset=["swap_date"])
+    swap_of = dict(zip(dates["gauge_id"], pd.to_datetime(dates["swap_date"]), strict=True))
+    print(f"{len(swapped)} gauges left whole tips. Reading daily totals...", flush=True)
+    m = _daily_matrix(cfg, ids, index)
+    have = [g for g in ids if g in m.columns]
+    nb = qc2.nearest_neighbours(loc.loc[have], 50, st2["neighbour_max_km"])
+    h = _haduk_matrix(cfg, list(swapped["gauge_id"]))
+    rows = []
+    for r in swapped.itertuples():
+        g, date = r.gauge_id, pd.Timestamp(r.swap_date)
+        if g not in m.columns:
+            continue
+        n = qc_swap.usable_years(m[g], date, cfg)
+        span = pd.DateOffset(years=max(n, 1))
+        # Neighbours unchanged over the windows: no swap, or one outside them
+        keep = [x for x in nb.get(g, [])
+                if pd.isna(swap_of.get(x, pd.NaT))
+                or not (date - span <= swap_of[x] < date + span)][:st2["neighbours"]]
+        res_nb = qc_swap.swap_step(m[g], m[keep], date, cfg, years=n)
+        res_h = (qc_swap.swap_step(m[g], h[[g]], date, cfg, years=n) if g in h
+                 else qc_swap.swap_step(m[g], pd.DataFrame(index=m.index), date, cfg, years=n))
+        row = {"gauge_id": g, "swap_date": date.date(), "source": r.source, "years": n}
+        for tag, res in (("nb", res_nb), ("haduk", res_h)):
+            pct = {k: round(100 * res[k], 1) if np.isfinite(res[k]) else np.nan
+                   for k in ("step", "step_min", "step_max", "noise")}
+            row.update({f"{tag}_refs": res["refs"], f"{tag}_step_pct": pct["step"],
+                        f"{tag}_noise_pct": pct["noise"], f"{tag}_placebos": res["placebos"],
+                        f"{tag}_z": round(res["z"], 1) if np.isfinite(res["z"]) else np.nan,
+                        f"{tag}_flag": res["flag"]})
+            if tag == "nb":
+                row.update(nb_step_min_pct=pct["step_min"], nb_step_max_pct=pct["step_max"])
+        rows.append(row)
+    out = pd.DataFrame(rows)
+    if len(out):
+        out = out.sort_values("nb_step_pct", key=lambda x: x.abs(), ascending=False,
+                              na_position="last").reset_index(drop=True)
+    store.write_csv(out, f"{cfg['store_root']}/gold/qc/swap/steps.csv")
+    return out

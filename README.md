@@ -192,6 +192,26 @@ At Cannon Hall (085322) the annual ratio to its neighbours averages 1.005 to 201
 1 in every year from 2012, averaging 1.088: a step of 9%, found by Pettitt's test, when
 something changed at the gauge.
 
+**Gauge swaps.** The EA is replacing tipping buckets with the Rain[e], Area by Area. A bucket
+reports whole tips of 0.2 mm and the Rain[e] much finer amounts, so the swap shows in the
+readings: `qc_swap.swap_date()` finds the first month from which most readings stop being
+whole tips and stay that way, and dates the swap to the day within it (or late in the month
+before). An install register, a CSV of gauge_id and swap_date named by `qc.swap_csv`, beats the
+dates read from the readings.
+
+The rollout is staggered, so a swapped gauge has for some years neighbours still on buckets.
+`rain_qc.run_swaps()` takes its ratio to each such neighbour over up to two whole years after
+the swap, against the same ratio over the years before: the neighbour's own level cancels,
+and whole years keep the seasons balanced. The median over the neighbours is the step. The
+same comparison at the same date in earlier years, when nothing changed, gives the noise; a
+step is flagged `up` or `down` at twice the noise. HadUK-Grid at the gauge's cell is a second
+reference, weaker because the gauge feeds it. Results in `gold/qc/swap/`.
+
+On the six gauges round Harley all six left whole tips between December 2023 and October 2026.
+Harley swapped on 31 July 2024 and reads 11% lower against its one unchanged neighbour
+(081894, swapped October 2026), about 2.4 times the noise: worth confirming across the
+network before reading anything into it.
+
 ## Testing
 
 ```bash

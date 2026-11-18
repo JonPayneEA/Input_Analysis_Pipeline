@@ -65,4 +65,11 @@ qc:
   # Stage 3: SAAR by gauge for the long-term check, a CSV of gauge_id and saar_mm. SAAR is
   # restricted: the file must sit on a restricted volume. Empty: compare with HadUK-Grid only.
   saar_csv: ""
+  # Gauge swaps: an install register, a CSV of gauge_id and swap_date (YYYY-MM-DD). Empty: the
+  # dates are read from the readings, where a gauge stops reporting whole 0.2 mm tips.
+  swap_csv: ""
+  # swap:                  # the swap check's settings, defaults shown
+  #   tip_mm: 0.2
+  #   years: 2             # whole years each side of the swap, fewer if the record is shorter
+  #   z: 2.0               # a step is flagged at this many times the noise
 
