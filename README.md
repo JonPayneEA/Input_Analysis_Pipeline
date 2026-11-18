@@ -52,6 +52,7 @@ on an unrestricted one; H19, FEH SAAR and MOSES need a restricted volume of thei
 | 5 | `05_incremental` | Monthly, as a scheduled job, a few days after the EA's monthly release | Fetches each gauge's new readings, and any the EA has revised in the look-back period |
 | 6 | `06_haduk_extract` | Once, then after each HadUK-Grid release | Gauge positions, then HadUK-Grid daily rainfall for every gauge's 1 km cell and every configured area |
 | 7 | `07_rainfall_accumulation` | Whenever wanted | Accumulation charts chosen from drop-downs (gauge or area, period, start year and month), and a table of where every gauge stands |
+| 8 | `08_rain_qc` | After each update | Quality control, stage 1: flags each gauge's readings and days from its own record, and reports its years |
 
 **Read the trial before the backfill.** It shows whether the volume accepts the writes and how
 long a gauge-year takes. The EA asks for one request at a time, so the jobs make one request a
@@ -147,6 +148,24 @@ HadUK-Grid is read once by `06_haduk_extract` into one Parquet file a year under
 The notebooks install `xarray` and `netCDF4` with `%pip` if the runtime lacks them. HadUK-Grid
 is interpolated from rain gauges, many of them these, so it is a good check for gross errors
 and changes but not proof that a gauge is right to within a few per cent.
+
+## Quality control
+
+Stage 1 checks each gauge against its own record, after Lewis et al. (2018, 2021): readings off
+the quarter hour or negative (rejected); extreme 15-minute or daily amounts, the same amount
+repeated for hours, totals dumped after an outage, and readings the EA flagged Suspect
+(suspect). Each year reports the tip resolution, the largest share of rain in one hour of the
+day, and the weekend share. Results go to `gold/qc/`: flagged readings, flagged days and years
+per gauge, and `summary.csv` across the network. Nothing in the store is removed or changed;
+flags are on reach.io's scale (1 good, 3 suspect, 4 rejected) and users decide what to leave
+out. The thresholds are settings under `qc`, provisional until checked against the papers.
+
+At Harley (000008) stage 1 rejects the 10 days holding its 21 off-grid readings, marks 935
+days the EA flagged Suspect, and finds the tip resolution changing from 0.2 mm to 0.01 mm on
+1 August 2024: a new instrument, logger or processing, which splits the record.
+
+Stages 2 and 3, to come: checks against neighbouring gauges and HadUK-Grid (daily agreement,
+long-term ratios, timing), then tests on whole records (breakpoints).
 
 ## Testing
 

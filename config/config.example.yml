@@ -48,3 +48,18 @@ accumulation:
   min_years: 20                 # fewer complete years at a gauge: use HadUK-Grid at its cell
   min_complete: 0.95            # share of a day's 96 readings needed for the day to count
 
+# Quality control, stage 1 (single gauge). Every setting is optional; these are the defaults,
+# provisional until checked against Lewis et al. (2018, 2021).
+qc:
+  suspect_15min_mm: 40.0
+  reject_15min_mm: 100.0
+  suspect_day_mm: 200.0
+  reject_day_mm: 400.0
+  repeat_runs: [[1.0, 8], [0.2, 48]]   # [mm, readings in a row]: 1 mm for 2 h, any for 12 h
+  accumulation_mm: 5.0
+  accumulation_gap_h: 24.0
+  use_ea_suspect: true
+  hour_share_max: 0.2
+  weekend_ratio_range: [0.5, 1.5]
+  min_wet_readings: 200             # judge hour and weekend patterns only with this many
+
