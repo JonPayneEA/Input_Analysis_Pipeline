@@ -2,14 +2,16 @@
 # ============================================================
 # Tool:         08 rain gauge QC
 # Description:  Quality control over the network (Lewis et al. 2018, 2021). Stage 1: each
-#               gauge's own record. Stage 2: against HadUK-Grid and neighbouring gauges
+#               gauge's own record. Stage 2: against HadUK-Grid and neighbouring gauges.
+#               Stage 3: whole records, their level, trends and steps
 # Flode Module: Input_Analysis_Pipeline
 # Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-18
 # Tier:         1
 # Inputs:       The Bronze rain store; the qc section of the config (optional)
 # Outputs:      gold/qc/{readings,days,years}/<gauge>.parquet; gold/qc/summary.csv;
-#               gold/qc/stage2/{days,months,years}.parquet and summary.csv
+#               gold/qc/stage2/{days,months,years}.parquet and summary.csv;
+#               gold/qc/stage3/checks.parquet and summary.csv
 # Dependencies: pandas, pyarrow (in the Databricks runtime)
 # ============================================================
 
@@ -134,4 +136,33 @@ display(off.head(30))  # noqa: F821
 years = pd.read_parquet(f"{cfg['store_root']}/gold/qc/stage2/years.parquet")
 print("Years shifted by a day or two against the neighbours:")
 display(years[years["shifted"]])  # noqa: F821
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Stage 3: whole records
+# MAGIC A gauge reading 10% low all its life, or stepping when it was moved, passes every daily
+# MAGIC check. These look at the whole record, month by month, against HadUK-Grid and the
+# MAGIC neighbours (the plan's source comparisons; the same as reach.forcing's ratio_checks):
+# MAGIC
+# MAGIC | Check | Flagged when |
+# MAGIC |---|---|
+# MAGIC | `typical_ratio` (HadUK) | Its whole 90% interval lies outside 0.9 to 1.1 |
+# MAGIC | `winter_summer` (HadUK) | Winter reads low against summer: under-catch of snow or wind |
+# MAGIC | `trend` | The annual ratio drifts more than 3% a decade (Sen's slope) |
+# MAGIC | `change_point` | A significant step (Pettitt) larger than 5%, dated by its first year |
+# MAGIC | `b` | The long-term mean against SAAR moved to its years, outside 0.9 to 1.1 |
+# MAGIC
+# MAGIC Against the neighbours (scaled to the gauge's level) only the trend and steps count. `b`
+# MAGIC is against SAAR where `qc.saar_csv` names a file of gauge_id and saar_mm (SAAR is
+# MAGIC restricted: keep the file on a restricted volume), else against HadUK-Grid.
+# MAGIC
+# MAGIC At Cannon Hall (085322) the annual ratio to its neighbours averages 1.005 to 2011 and is
+# MAGIC above 1 every year from 2012, averaging 1.088: a step of 9% when something changed.
+
+# COMMAND ----------
+
+summary3 = rain_qc.run_stage3(cfg)
+print((summary3["flags"] > 0).sum(), "of", len(summary3), "gauges with a whole-record flag")
+display(summary3.head(40))  # noqa: F821
 

@@ -9,7 +9,8 @@
 # Tier:         1
 # Inputs:       The Bronze rain store; the qc section of the config
 # Outputs:      gold/qc/{readings,days,years}/<gauge>.parquet; gold/qc/summary.csv; stage 2 in
-#               gold/qc/stage2/{days,months,years}.parquet and summary.csv
+#               gold/qc/stage2/{days,months,years}.parquet and summary.csv; stage 3 in
+#               gold/qc/stage3/checks.parquet and summary.csv
 # Dependencies: pandas, pyarrow
 # ============================================================
 """Quality control across the network, kept up to date with the Bronze store."""
@@ -20,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from pipelines import qc, qc2, store
+from pipelines import qc, qc2, qc3, store
 
 KINDS = ("readings", "days", "years")
 
@@ -199,3 +200,100 @@ def run_stage2(cfg, gauges=None):
     summary = summary.sort_values(["months_off", "days_flagged"], ascending=False)
     store.write_csv(summary, f"{cfg['store_root']}/gold/qc/stage2/summary.csv")
     return summary.reset_index(drop=True)
+
+
+# ---- Stage 3: whole records against HadUK-Grid, the neighbours and SAAR --------------------
+
+
+def _complete_months(months, share):
+    """Stage 2's months with at least `share` of their days shared, with water years."""
+    m = months.copy()
+    dim = pd.to_datetime(dict(year=m["year"], month=m["month"], day=1)).dt.days_in_month
+    m = m[m["days"] >= share * dim]
+    m["water_year"] = m["year"] + (m["month"] >= 10)
+    return m
+
+
+def _haduk_baselines(cfg, ids, first=1961, last=1990, min_years=20):
+    """HadUK-Grid's mean annual rain at each gauge's cell over complete calendar years from
+    `first` to `last`, needing `min_years` of them; NaN otherwise."""
+    h = _haduk_matrix(cfg, ids)
+    if not len(h):
+        return pd.Series(np.nan, index=ids, dtype=float)
+    h = h[(h.index.year >= first) & (h.index.year <= last)]
+    sums = h.groupby(h.index.year).sum(min_count=1)
+    counts = h.groupby(h.index.year).count()
+    days = pd.Series([366 if pd.Timestamp(year=y, month=12, day=31).dayofyear == 366 else 365
+                      for y in counts.index], index=counts.index)
+    full = sums.where(counts.eq(days, axis=0))
+    base = full.mean()
+    base[full.count() < min_years] = np.nan
+    return base.reindex(ids)
+
+
+def _saar(cfg):
+    """SAAR by gauge from the optional CSV (gauge_id, saar_mm) the config names under
+    qc.saar_csv. SAAR is restricted: keep the file on a restricted volume; never commit it."""
+    path = ((cfg.get("qc", {}) or {}).get("saar_csv") or "")
+    if not path:
+        return {}
+    s = pd.read_csv(path, dtype={"gauge_id": str})
+    return dict(zip(s["gauge_id"], s["saar_mm"].astype(float), strict=True))
+
+
+def run_stage3(cfg):
+    """Stage 3 over the network, from stage 2's monthly table (run stage 2 first): each
+    gauge's whole record against HadUK-Grid and its neighbours (ratio_checks), and its
+    long-term mean against SAAR where qc.saar_csv gives it. Writes gold/qc/stage3/ and returns
+    a summary, the gauges with most flags first."""
+    st = qc3.settings3(cfg)
+    p = _stage2_path(cfg, "months")
+    if not p.exists():
+        raise FileNotFoundError("No stage 2 months: run stage 2 (rain_qc.run_stage2) first")
+    months = _complete_months(pd.read_parquet(p), st["month_complete"])
+    ids = sorted(months["gauge_id"].unique())
+    baselines = _haduk_baselines(cfg, ids)
+    saar = _saar(cfg)
+    checks, rows = [], []
+    for g in ids:
+        row = {"gauge_id": g}
+        for ref in ("haduk", "neighbours"):
+            m = months[(months["gauge_id"] == g) & (months["reference"] == ref)]
+            if not len(m):
+                continue
+            c = qc3.ratio_checks(m["gauge_mm"], m["ref_mm"], m["water_year"], m["month"], cfg)
+            c.insert(0, "reference", ref)
+            c.insert(0, "gauge_id", g)
+            checks.append(c)
+            by = c.set_index("check")
+            tag = "haduk" if ref == "haduk" else "nb"
+            # Against the neighbours, scaled to the gauge's level, the typical ratio is 1 by
+            # construction: only its trend and steps say anything
+            if ref == "haduk":
+                row["typical_ratio"] = round(by.at["typical_ratio", "value"], 3)
+                row["typical_flag"] = by.at["typical_ratio", "flag"]
+                row["winter_summer"] = round(by.at["winter_summer", "value"], 3)
+                row["winter_summer_flag"] = by.at["winter_summer", "flag"]
+            row[f"trend_{tag}_pct_decade"] = round(by.at["trend", "value"], 1)
+            row[f"trend_{tag}_flag"] = by.at["trend", "flag"]
+            row[f"step_{tag}_pct"] = round(by.at["change_point", "value"], 1)
+            row[f"step_{tag}_year"] = by.at["change_point", "at"]
+            row[f"step_{tag}_flag"] = by.at["change_point", "flag"]
+        # Annual totals over water years complete against HadUK-Grid, for the long-term check
+        mh = months[(months["gauge_id"] == g) & (months["reference"] == "haduk")]
+        full = mh.groupby("water_year").filter(lambda x: len(x) == 12)
+        annual = full.groupby("water_year")[["gauge_mm", "ref_mm"]].sum()
+        lt = qc3.longterm_ratios(annual["gauge_mm"], annual["ref_mm"], baselines.get(g, np.nan),
+                                 saar.get(g), cfg)
+        row.update({k: lt[k] for k in ("years", "c", "m", "b", "b_against", "b_flag",
+                                       "m_flag")})
+        rows.append(row)
+    out = pd.concat(checks, ignore_index=True) if checks else pd.DataFrame()
+    store.write_parquet(out, str(Path(f"{cfg['store_root']}/gold/qc/stage3/checks.parquet")))
+    summary = pd.DataFrame(rows)
+    flag_cols = [c for c in summary.columns if c.endswith("_flag")]
+    summary["flags"] = summary[flag_cols].isin(["low", "high", "flagged"]).sum(axis=1)
+    summary = summary.sort_values("flags", ascending=False).reset_index(drop=True)
+    store.write_csv(summary, f"{cfg['store_root']}/gold/qc/stage3/summary.csv")
+    return summary
+
