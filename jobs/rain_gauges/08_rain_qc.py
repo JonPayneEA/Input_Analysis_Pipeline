@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # ============================================================
 # Tool:         08 rain gauge QC
 # Description:  Quality control over the network (Lewis et al. 2018, 2021). Stage 1: each
@@ -225,3 +229,4 @@ if len(measured):
           f"to {q[2]}")
     print("Flagged:", measured["nb_flag"].value_counts().to_dict())
 show(swaps.head(40), display, "No gauge left whole tips.")  # noqa: F821
+display(summary3.head(40))  # noqa: F821
