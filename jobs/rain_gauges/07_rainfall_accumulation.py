@@ -40,6 +40,7 @@ for _name in [m for m in sys.modules if m == "pipelines" or m.startswith("pipeli
 
 from pipelines import rain_charts  # noqa: E402
 from pipelines.config import load_config  # noqa: E402
+from pipelines.notebook import show  # noqa: E402
 
 cfg = load_config(_root)
 
@@ -122,4 +123,5 @@ if ch["table"]:
     print(f"{len(behind)} of {len(table)} gauges stop before day {table['days'].max()}:")
     print(behind["days"].value_counts().sort_index(ascending=False).to_string())
     print("Odd ones out:")
-    display(table[table["odd_one_out"]])  # noqa: F821
+    show(table[table["odd_one_out"]], display,  # noqa: F821
+         "None: every gauge is in line with its neighbours.")
