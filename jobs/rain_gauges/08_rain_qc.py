@@ -37,6 +37,7 @@ for _name in [m for m in sys.modules if m == "pipelines" or m.startswith("pipeli
 
 from pipelines import rain_qc  # noqa: E402
 from pipelines.config import load_config  # noqa: E402
+from pipelines.notebook import show  # noqa: E402
 
 cfg = load_config(_root)
 
@@ -77,7 +78,7 @@ print("Gauges with at least one rejected day:", int((summary["days_rejected"] > 
 # COMMAND ----------
 
 # The gauges with the most rejected and suspect days
-display(summary.head(30))  # noqa: F821 - Databricks notebooks provide display()
+show(summary.head(30), display, "No gauge to show.")  # noqa: F821 - Databricks provides display()
 
 # COMMAND ----------
 
@@ -87,17 +88,18 @@ display(summary.head(30))  # noqa: F821 - Databricks notebooks provide display()
 for col in ("resolution_change_years", "hour_bias_years", "weekend_bias_years"):
     hit = summary[summary[col].fillna("").str.len() > 0]
     print(f"{col.replace('_years', '').replace('_', ' ')}: {len(hit)} gauges")
-    display(hit[["gauge_id", col]])  # noqa: F821
+    show(hit[["gauge_id", col]], display, "None.")  # noqa: F821
 
 # COMMAND ----------
 
 # One gauge in detail: its flagged days and its years
 GAUGE = summary["gauge_id"].iloc[0]
 print("Gauge", GAUGE)
-display(rain_qc.day_flags(cfg, GAUGE))  # noqa: F821
+show(rain_qc.day_flags(cfg, GAUGE), display, "No flagged days.")  # noqa: F821
 import pyarrow.parquet as pq  # noqa: E402
 
-display(pq.read_table(rain_qc._path(cfg, "years", GAUGE)).to_pandas())  # noqa: F821
+gauge_years = pq.read_table(rain_qc._path(cfg, "years", GAUGE)).to_pandas()
+show(gauge_years, display, "No years.")  # noqa: F821
 
 # COMMAND ----------
 
@@ -124,7 +126,7 @@ display(pq.read_table(rain_qc._path(cfg, "years", GAUGE)).to_pandas())  # noqa: 
 
 # Reads every gauge's daily totals and its HadUK-Grid cell at once: allow some minutes
 summary2 = rain_qc.run_stage2(cfg)
-display(summary2.head(30))  # noqa: F821
+show(summary2.head(30), display, "No gauge to show.")  # noqa: F821
 
 # COMMAND ----------
 
@@ -134,10 +136,10 @@ months = pd.read_parquet(f"{cfg['store_root']}/gold/qc/stage2/months.parquet")
 off = months[months["flag"] == 3].sort_values("ratio")
 print(len(off), "months off, of", len(months), "judged")
 print("The driest against their references (blocked or failed gauges):")
-display(off.head(30))  # noqa: F821
+show(off.head(30), display, "No month far from its references.")  # noqa: F821
 years = pd.read_parquet(f"{cfg['store_root']}/gold/qc/stage2/years.parquet")
 print("Years shifted by a day or two against the neighbours:")
-display(years[years["shifted"]])  # noqa: F821
+show(years[years["shifted"]], display, "None: no year lines up better shifted.")  # noqa: F821
 
 # COMMAND ----------
 
@@ -166,7 +168,7 @@ display(years[years["shifted"]])  # noqa: F821
 
 summary3 = rain_qc.run_stage3(cfg)
 print((summary3["flags"] > 0).sum(), "of", len(summary3), "gauges with a whole-record flag")
-display(summary3.head(40))  # noqa: F821
+show(summary3.head(40), display, "No gauge to show.")  # noqa: F821
 
 # COMMAND ----------
 
@@ -197,4 +199,4 @@ if len(measured):
     print(f"Step against unchanged neighbours, per cent: median {q[1]}, middle half {q[0]} "
           f"to {q[2]}")
     print("Flagged:", measured["nb_flag"].value_counts().to_dict())
-display(swaps.head(40))  # noqa: F821
+show(swaps.head(40), display, "No gauge left whole tips.")  # noqa: F821
