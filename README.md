@@ -22,6 +22,7 @@ writes, so the store reads back in R with `reach.io::read_bronze()`.
 | `pipelines/rain_charts.py` | Gauge positions, the HadUK-Grid extract, gauge and area charts, the month table |
 | `pipelines/camels.py` | CAMELS-GB v2 as PDM input: hourly tables, descriptors, screening |
 | `jobs/camels_gb/01_camels_prepare.py` | The CAMELS-GB v2 preparation, as a notebook |
+| `jobs/camels_gb/02_camels_trial.r` | The 12-catchment calibration trial, in R, for a personal cluster |
 | `pipelines/config.py` | Reading the configuration |
 | `config/config.example.yml` | The settings. Copy it; never commit the copy |
 | `tests/python/` | Tests, with a fake API so none touches the network |
@@ -248,6 +249,21 @@ flow and level flag codes mean, and what `precipitation_gradgb` is. Both are kep
 until the CAMELS-GB v2 paper (ESSD 18, 4345-4371, 2026) says. The abstraction figures behind
 the human-influence attributes came to CAMELS from the Environment Agency under a conditional
 licence; they are used only to choose catchments.
+
+### The calibration trial
+
+`jobs/camels_gb/02_camels_trial.r` runs the trial before the bulk calibration: twelve screened
+catchments, spread through the baseflow index, each calibrated three times with pdmS7 (Hydro-PE
+with two seeds, CHESS-PE with one). It shows whether two seeds give the same calibration, how
+far the evaporation product moves the scores and parameters, and how long the bulk run will
+take. Results go to `gold/camels_gb_v2/trial/`.
+
+It is the one R notebook here. It needs a cluster you own with R enabled, not a shared one, and
+pdmS7 0.35.0 or later, arrow and yaml installed on it as cluster libraries: the calibrations run
+in parallel worker processes, which load the installed pdmS7. The calibration code lives in
+pdmS7 (`inst/scripts/camels_trial.R`) with its tests; the notebook finds the config as the
+Python jobs do, checks the packages, runs the script and shows the tables. Run
+`01_camels_prepare` first.
 
 ## Testing
 
