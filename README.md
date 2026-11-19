@@ -20,6 +20,8 @@ writes, so the store reads back in R with `reach.io::read_bronze()`.
 | `pipelines/areas.py` | Outlines in GeoJSON, the 1 km cells inside them, Thiessen weights of gauges |
 | `pipelines/accumulation.py` | 09:00 rain days, monthly running totals, reference lines, the chart |
 | `pipelines/rain_charts.py` | Gauge positions, the HadUK-Grid extract, gauge and area charts, the month table |
+| `pipelines/camels.py` | CAMELS-GB v2 as PDM input: hourly tables, descriptors, screening |
+| `jobs/camels_gb/01_camels_prepare.py` | The CAMELS-GB v2 preparation, as a notebook |
 | `pipelines/config.py` | Reading the configuration |
 | `config/config.example.yml` | The settings. Copy it; never commit the copy |
 | `tests/python/` | Tests, with a fake API so none touches the network |
@@ -211,6 +213,35 @@ On the six gauges round Harley all six left whole tips between December 2023 and
 Harley swapped on 31 July 2024 and reads 11% lower against its one unchanged neighbour
 (081894, swapped October 2026), about 2.4 times the noise: worth confirming across the
 network before reading anything into it.
+
+## CAMELS-GB v2 for the bulk calibration
+
+CAMELS-GB v2 (Coxon et al., 2026; Open Government Licence v3) holds hourly rain and flow for 671
+catchments, October 1990 to October 2022, with daily evaporation and temperature and a wide set
+of catchment attributes. `jobs/camels_gb/01_camels_prepare.py` turns it into PDM input under
+`gold/camels_gb_v2/`; set `camels.root` in the config to the CAMELS-GB v2 folder.
+
+- **Hourly tables**, one per catchment: time (UTC, hour start), CEH-GEAR rain, the second
+  hourly rain series (`precipitation_gradgb`, kept, not yet used), evaporation, temperature,
+  flow in m3/s and mm/h, level, and the flow and level flags as given. Each day's evaporation
+  (`camels.pet`, Hydro-PE by default) is spread over its daylight hours as a half sine from
+  sunrise to sunset at the gauge's latitude, keeping the day's total; each hour takes its
+  day's temperature.
+- **Descriptors**: topography, climate, soils, hydrogeology, land cover and human influence,
+  all of which can be known for a catchment with no gauge. **Signatures** (mean flow, baseflow
+  index, runoff ratio and the flow percentiles) come from the gauged flow, so they are kept in
+  a table of their own: a model of parameters for ungauged catchments must never see them.
+  **Hydrometry**: record completeness, the highest gauged flow, flow uncertainty.
+- **Screening**: which catchments suit the PDM, and why any are left out: an hourly record
+  under 80% complete, more than 15% of precipitation as snow, more than half the catchment on
+  highly productive aquifers, or reservoir capacity above a fifth of the mean annual runoff.
+  The thresholds are settings, provisional until the trial calibrations.
+
+Not yet known, because the v2 documentation is not with the data on the platform: what the
+flow and level flag codes mean, and what `precipitation_gradgb` is. Both are kept as given
+until the CAMELS-GB v2 paper (ESSD 18, 4345-4371, 2026) says. The abstraction figures behind
+the human-influence attributes came to CAMELS from the Environment Agency under a conditional
+licence; they are used only to choose catchments.
 
 ## Testing
 

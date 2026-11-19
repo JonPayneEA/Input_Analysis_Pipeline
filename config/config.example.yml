@@ -73,3 +73,16 @@ qc:
   #   years: 2             # whole years each side of the swap, fewer if the record is shorter
   #   z: 2.0               # a step is flagged at this many times the noise
 
+
+# CAMELS-GB v2 (open, Open Government Licence v3), for the bulk PDM calibration. root is the
+# CAMELS-GB v2 folder, the one holding Catchment_Attributes and Catchment_Timeseries. The rest
+# are optional; these are the defaults.
+camels:
+  root: /Volumes/<catalog>/<schema>/<volume>/<CAMELS-GB v2 folder>/
+  pet: pet_hydrope              # daily evaporation: pet_chess, peti_chess, pet_hydrope or
+                                # peti_hydrope (with interception)
+  temperature: temperature_chess   # or temperature_haduk
+  min_hourly_complete: 80.0     # screening: hourly flow at least this complete, per cent
+  max_frac_snow: 0.15           # share of precipitation as snow
+  max_high_perm: 50.0           # per cent of the catchment on highly productive aquifers
+  max_reservoir_capacity: 0.2   # reservoir capacity over mean annual runoff
