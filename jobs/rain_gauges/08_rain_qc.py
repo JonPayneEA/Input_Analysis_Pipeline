@@ -10,7 +10,7 @@
 # Created:      2026-11-18
 # Tier:         1
 # Inputs:       The Bronze rain store; the qc section of the config (optional)
-# Outputs:      gold/qc/{readings,days,years}/<gauge>.parquet; gold/qc/summary.csv;
+# Outputs:      gold/qc/{readings,days,years,weekly}/<gauge>.parquet; gold/qc/summary.csv;
 #               gold/qc/stage2/{days,months,years}.parquet and summary.csv;
 #               gold/qc/stage3/checks.parquet and summary.csv;
 #               gold/qc/swap/dates.csv and steps.csv
@@ -63,6 +63,14 @@ cfg = load_config(_root)
 # MAGIC reporting fault concentrates it), and the weekend share (manual readings), judged only in
 # MAGIC years with at least 200 wet readings. The thresholds
 # MAGIC are settings under `qc` in the config, and provisional.
+# MAGIC
+# MAGIC **The weekly test** looks at the whole record by day of the week. Real rain has no
+# MAGIC weekly rhythm, so one in the record points to how the gauge was read or kept: weekend
+# MAGIC rain booked to Monday (a manual or storage gauge), weekends filled in afterwards, or
+# MAGIC spurious small tips on weekdays from maintenance visits. Chance is judged by rotating
+# MAGIC each week's days at random, which keeps storms together; a gauge is flagged when its
+# MAGIC weekend or Monday ratio is further from 1 than 99% of those rotations, and at least
+# MAGIC 0.1 from it. The first run after this check was added checks every gauge again.
 
 # COMMAND ----------
 
@@ -100,6 +108,23 @@ import pyarrow.parquet as pq  # noqa: E402
 
 gauge_years = pq.read_table(rain_qc._path(cfg, "years", GAUGE)).to_pandas()
 show(gauge_years, display, "No years.")  # noqa: F821
+
+# COMMAND ----------
+
+# The weekly test across the network: gauges whose record has a weekly rhythm, then one
+# gauge's rain and wet readings by day of the week. Set WEEKLY_GAUGE to look at another.
+weekly_cols = ["gauge_id", "weekend_ratio_all", "weekend_p", "monday_ratio", "monday_p",
+               "weekday_wet_ratio"]
+pattern = summary[summary["weekly_pattern"].fillna(False).astype(bool)]
+print(len(pattern), "of", len(summary), "gauges with a weekly pattern")
+show(pattern[weekly_cols].sort_values("monday_ratio", ascending=False), display,  # noqa: F821
+     "None: no gauge's record has a weekly rhythm.")
+WEEKLY_GAUGE = pattern["gauge_id"].iloc[0] if len(pattern) else GAUGE
+profile = rain_qc.weekly_profile(cfg, WEEKLY_GAUGE)
+show(profile.iloc[:, :8], display, "No weekly profile.")  # noqa: F821
+if len(profile):
+    fig = rain_qc.plot_weekly(profile, f"Gauge {WEEKLY_GAUGE}:")
+    display(fig)  # noqa: F821
 
 # COMMAND ----------
 
