@@ -10,8 +10,9 @@
 # Tier:         1
 # Inputs:       The CAMELS-GB v2 folder (camels.root in the config): hourly and daily
 #               hydro-meteorological CSVs and the catchment attribute CSVs
-# Outputs:      gold/camels_gb_v2/hourly/<gauge>.parquet; descriptors.parquet,
-#               signatures.parquet, hydrometry.parquet and screening.csv beside them
+# Outputs:      gold/camels_gb_v2/hourly/<gauge>.parquet, with every evaporation product;
+#               descriptors.parquet, signatures.parquet, hydrometry.parquet and screening.csv
+#               beside them
 # Dependencies: numpy, pandas, pyarrow
 # ============================================================
 """CAMELS-GB v2 (Coxon et al., 2026; Open Government Licence v3) as PDM input.
@@ -37,6 +38,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 
 from pipelines import store
 
@@ -54,6 +56,8 @@ DESCRIPTOR_TABLES = ("topographic", "climatic", "soil", "hydrogeology", "landcov
                      "humaninfluence")
 SIGNATURE_TABLES = ("hydrologic",)
 HYDROMETRY_TABLES = ("hydrometry",)
+
+PET_PRODUCTS = ("pet_chess", "peti_chess", "pet_hydrope", "peti_hydrope")
 
 HOURLY = re.compile(r"hydromet_hourly_timeseries_(\w+?)_\d{8}-\d{8}\.csv$")
 DAILY = re.compile(r"hydromet_daily_timeseries_(\w+?)_\d{8}-\d{8}\.csv$")
@@ -102,7 +106,10 @@ def daylight_weights(dates, latitude):
 def hourly_table(hourly_csv, daily_csv, latitude, cfg=None):
     """One catchment's hourly model input: time (UTC, hour start), rain_mm (CEH-GEAR),
     rain_gradgb_mm, pet_mm (the daily column `pet` spread over daylight), temperature_c (the
-    day's), flow_m3s, flow_mmh, flow_flag, level_m and level_flag. Flags are kept as given."""
+    day's), flow_m3s, flow_mmh, flow_flag, level_m and level_flag. Flags are kept as given.
+    Every evaporation product in the daily file is also spread and kept, as <product>_mm
+    (pet_chess_mm, peti_chess_mm, pet_hydrope_mm, peti_hydrope_mm), so a calibration can
+    compare them without preparing the data again."""
     st = settings(cfg)
     h = pd.read_csv(hourly_csv, dtype={"discharge_flag": str, "level_flag": str})
     d = pd.read_csv(daily_csv)
@@ -112,16 +119,19 @@ def hourly_table(hourly_csv, daily_csv, latitude, cfg=None):
     time = pd.to_datetime(h["date"], utc=True)
     days = pd.to_datetime(d["date"])
     weights = daylight_weights(days, latitude)
-    pet = pd.Series((d[st["pet"]].to_numpy()[:, None] * weights).ravel(),
-                    index=pd.DatetimeIndex(
-                        (days.to_numpy()[:, None] + np.arange(24) * np.timedelta64(1, "h"))
-                        .ravel()).tz_localize("UTC"))
+    hours = pd.DatetimeIndex((days.to_numpy()[:, None] + np.arange(24) * np.timedelta64(1, "h"))
+                             .ravel()).tz_localize("UTC")
+
+    def spread(col):
+        daily = d[col].to_numpy(dtype=float)[:, None]
+        return pd.Series((daily * weights).ravel(), index=hours).reindex(time).to_numpy()
+
     temp = pd.Series(d[st["temperature"]].to_numpy(), index=days.dt.date)
     out = pd.DataFrame({
         "time": time,
         "rain_mm": h.get("precipitation_cehgear"),
         "rain_gradgb_mm": h.get("precipitation_gradgb"),
-        "pet_mm": pet.reindex(time).to_numpy(),
+        "pet_mm": spread(st["pet"]),
         "temperature_c": temp.reindex(time.dt.date).to_numpy(),
         "flow_m3s": h.get("discharge_vol"),
         "flow_mmh": h.get("discharge_spec"),
@@ -129,7 +139,20 @@ def hourly_table(hourly_csv, daily_csv, latitude, cfg=None):
         "level_m": h.get("level"),
         "level_flag": h.get("level_flag"),
     })
+    for product in PET_PRODUCTS:
+        if product in d:
+            out[f"{product}_mm"] = spread(product)
     return out
+
+
+def _current(target, newest, daily_csv):
+    """True if the stored table is newer than its sources and holds every evaporation product
+    the daily file has: a table from before the products were kept is written again."""
+    if not target.exists() or target.stat().st_mtime < newest:
+        return False
+    have = set(pq.read_schema(target).names)
+    products = set(pd.read_csv(daily_csv, nrows=0).columns) & set(PET_PRODUCTS)
+    return {f"{p}_mm" for p in products} <= have
 
 
 def _read_tables(root, names):
@@ -215,7 +238,7 @@ def run(cfg, gauges=None, refresh=False):
             continue
         target = out / "hourly" / f"{g}.parquet"
         newest = max(f["hourly"].stat().st_mtime, f["daily"].stat().st_mtime)
-        if not refresh and target.exists() and target.stat().st_mtime >= newest:
+        if not refresh and _current(target, newest, f["daily"]):
             continue
         lat = float(desc.at[g, "gauge_lat"]) if g in desc.index else 54.0
         store.write_parquet(hourly_table(f["hourly"], f["daily"], lat, st), str(target))

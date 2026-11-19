@@ -110,6 +110,10 @@ def test_hourly_table_keeps_each_days_evaporation(tmp_path):
     assert day1["pet_mm"].iloc[:6].sum() == 0
     assert (day1["temperature_c"] == 7.5).all()
     assert (t["flow_m3s"] == 3.0).all() and (t["flow_flag"] == "100").all()
+    # Every product in the daily file kept beside pet_mm, each day's total kept exactly
+    assert day1["pet_chess_mm"].sum() == pytest.approx(3.0)
+    assert (t["pet_hydrope_mm"] == t["pet_mm"]).all()
+    assert "peti_chess_mm" not in t
     # Another evaporation product, by name
     other = camels.hourly_table(f["hourly"], f["daily"], 52.0, {"camels": {"pet": "pet_chess"}})
     assert other["pet_mm"].iloc[:24].sum() == pytest.approx(3.0)
@@ -169,5 +173,11 @@ def test_run_writes_everything_and_skips_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(camels, "hourly_table", lambda *a, **k: calls.append(a))
     camels.run(cfg)
     assert calls == []
+    # A table written before the products were kept is written again, once
+    target = out / "hourly" / "1001.parquet"
+    pd.read_parquet(target).drop(columns=["pet_chess_mm"]).to_parquet(target)
+    monkeypatch.undo()
+    camels.run(cfg)
+    assert "pet_chess_mm" in pd.read_parquet(target)
     with pytest.raises(ValueError, match="camels.root"):
         camels.run({"store_root": str(tmp_path)})
