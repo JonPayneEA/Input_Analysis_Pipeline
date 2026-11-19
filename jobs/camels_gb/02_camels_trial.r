@@ -3,7 +3,7 @@
 # Tool:         02 CAMELS-GB v2 calibration trial
 # Description:  The 12-catchment trial before the bulk PDM calibration: whether two seeds give
 #               the same calibration, how much the evaporation product matters, and how long
-#               the bulk run will take. Runs the trial script that ships with pdmS7
+#               the bulk run will take. Runs camels_trial.R beside it
 # Flode Module: Input_Analysis_Pipeline
 # Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-19
@@ -20,9 +20,9 @@
 # MAGIC ## CAMELS-GB v2: the calibration trial
 # MAGIC **An R notebook, for a personal cluster.** Every other job in this repository is Python,
 # MAGIC because the shared clusters allow only Python and SQL. This one runs pdmS7, which is R,
-# MAGIC so it needs a cluster you own with R enabled. The calibration itself lives in pdmS7
-# MAGIC (`inst/scripts/camels_trial.R`), with its tests; this notebook finds the store, checks
-# MAGIC the packages, runs the trial and shows its tables.
+# MAGIC so it needs a cluster you own with R enabled. The trial itself is `camels_trial.R`
+# MAGIC beside this notebook, a copy of the script in pdmS7 (`inst/scripts/camels_trial.R`); this
+# MAGIC notebook finds the store, checks the packages, runs the trial and shows its tables.
 # MAGIC
 # MAGIC Twelve screened catchments, spread through the baseflow index, are calibrated three
 # MAGIC times with the staged DDS search: Hydro-PE with two seeds, and CHESS-PE with one.
@@ -59,8 +59,7 @@ if (utils::packageVersion("pdmS7") < need[["pdmS7"]]) {
   stop("pdmS7 ", as.character(utils::packageVersion("pdmS7")), " is installed; the trial ",
        "needs 0.35.0 or later, from master", call. = FALSE)
 }
-script <- system.file("scripts", "camels_trial.R", package = "pdmS7")
-cat("pdmS7", as.character(utils::packageVersion("pdmS7")), "| trial script:", script, "\n")
+cat("pdmS7", as.character(utils::packageVersion("pdmS7")), "\n")
 
 # COMMAND ----------
 
@@ -77,8 +76,11 @@ find_root <- function() {
     dir <- up
   }
 }
+root <- find_root()
+script <- file.path(root, "jobs", "camels_gb", "camels_trial.R")
+if (!file.exists(script)) stop("No ", script, ": pull main in the Git folder", call. = FALSE)
 config_file <- Sys.getenv("PIPELINES_CONFIG")
-if (!nzchar(config_file)) config_file <- file.path(find_root(), "config", "config.yml")
+if (!nzchar(config_file)) config_file <- file.path(root, "config", "config.yml")
 if (!file.exists(config_file)) {
   stop("No ", config_file, ". Set PIPELINES_CONFIG to your config file, with ",
        "Sys.setenv(PIPELINES_CONFIG = '...') at the top of this notebook or on the cluster.",
@@ -90,7 +92,7 @@ camels <- file.path(cfg$store_root, "gold", "camels_gb_v2")
 if (!file.exists(file.path(camels, "screening.csv"))) {
   stop("No CAMELS-GB tables under ", camels, ": run 01_camels_prepare first", call. = FALSE)
 }
-cat("Config:", config_file, "\nStore:", cfg$store_root, "\n")
+cat("Config:", config_file, "\nStore:", cfg$store_root, "\nTrial script:", script, "\n")
 
 # COMMAND ----------
 
