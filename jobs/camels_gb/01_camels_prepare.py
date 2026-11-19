@@ -76,7 +76,8 @@ display(t.head(30))  # noqa: F821 - Databricks notebooks provide display()
 # COMMAND ----------
 
 # Every catchment. The first run reads all 671 pairs of files (allow some minutes); later
-# runs redo only catchments whose source files have changed.
+# runs redo only catchments whose source files have changed, or whose tables lack an
+# evaporation product (tables from before the products were kept are written again, once).
 screen = camels.run(cfg)
 print(screen["use"].sum(), "of", len(screen), "catchments suit a PDM calibration")
 print(screen.loc[~screen["use"], "reasons"].str.split("; ").explode().value_counts())

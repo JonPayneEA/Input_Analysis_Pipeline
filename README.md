@@ -229,7 +229,10 @@ of catchment attributes. `jobs/camels_gb/01_camels_prepare.py` turns it into PDM
   flow in m3/s and mm/h, level, and the flow and level flags as given. Each day's evaporation
   (`camels.pet`, Hydro-PE by default) is spread over its daylight hours as a half sine from
   sunrise to sunset at the gauge's latitude, keeping the day's total; each hour takes its
-  day's temperature.
+  day's temperature. Every evaporation product in the daily files is spread the same way and
+  kept beside it (`pet_chess_mm`, `peti_chess_mm`, `pet_hydrope_mm`, `peti_hydrope_mm`), so a
+  calibration can compare them without preparing the data again. A table written before the
+  products were kept is written again on the next run.
 - **Descriptors**: topography, climate, soils, hydrogeology, land cover and human influence,
   all of which can be known for a catchment with no gauge. **Signatures** (mean flow, baseflow
   index, runoff ratio and the flow percentiles) come from the gauged flow, so they are kept in
