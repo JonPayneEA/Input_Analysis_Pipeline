@@ -129,4 +129,3 @@ if ch["table"]:
     print("Odd ones out:")
     show(table[table["odd_one_out"]], display,  # noqa: F821
          "None: every gauge is in line with its neighbours.")
-    display(table[table["odd_one_out"]])  # noqa: F821
