@@ -23,7 +23,7 @@ import pyarrow.parquet as pq
 
 from pipelines import qc, qc2, qc3, qc_swap, store
 
-KINDS = ("readings", "days", "years")
+KINDS = ("readings", "days", "years", "weekly")
 
 
 def _path(cfg, kind, gauge_id):
@@ -47,10 +47,11 @@ def check_gauge(cfg, gauge_id, files=None, refresh=False):
         series = store.read_series(root, gauge_id, files=files)
         flagged = qc.check_readings(series, cfg)
         out = {"readings": flagged, "days": qc.check_days(series, flagged, cfg),
-               "years": qc.check_years(series, cfg)}
+               "years": qc.check_years(series, cfg), "weekly": qc.check_weekly(series, cfg)}
         for k, df in out.items():
             store.write_parquet(df, str(paths[k]))
-    return qc.gauge_summary(gauge_id, out["readings"], out["days"], out["years"])
+    return qc.gauge_summary(gauge_id, out["readings"], out["days"], out["years"],
+                            out["weekly"])
 
 
 def run_qc(cfg, gauges=None, refresh=False):
@@ -71,6 +72,34 @@ def run_qc(cfg, gauges=None, refresh=False):
         summary = summary.sort_values(["days_rejected", "days_suspect"], ascending=False)
         store.write_csv(summary, f"{cfg['store_root']}/gold/qc/summary.csv")
     return summary.reset_index(drop=True)
+
+
+def weekly_profile(cfg, gauge_id):
+    """A gauge's rain by day of the week, with its whole-record weekly test (qc.check_weekly),
+    from its saved stage 1 results."""
+    p = _path(cfg, "weekly", gauge_id)
+    return pq.read_table(p).to_pandas() if p.exists() else pd.DataFrame()
+
+
+def plot_weekly(profile, title=""):
+    """Bars of each weekday's share of the rain and of the wet readings, against the even share
+    (1). A weekly rhythm stands out: a Monday spike when weekend rain is booked to Monday, a
+    weekday excess of wet readings when maintenance visits make spurious tips."""
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(8, 3.6))
+    x = np.arange(7)
+    ax.bar(x - 0.2, profile["rain_ratio"], 0.4, label="Rain", color="#0072B2")
+    ax.bar(x + 0.2, profile["wet_ratio"], 0.4, label="Wet readings", color="#E69F00")
+    ax.axhline(1, color="#555555", lw=1, ls="--")
+    ax.set_xticks(x, [d[:3] for d in profile["day"]])
+    ax.set_ylabel("Share over the even share")
+    if len(profile):
+        r = profile.iloc[0]
+        ax.set_title(f"{title}  weekend {r['weekend_ratio_all']:.2f} (p {r['weekend_p']:.3f}), "
+                     f"Monday {r['monday_ratio']:.2f} (p {r['monday_p']:.3f})", fontsize=10)
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    return fig
 
 
 def _stage1_days(cfg, gauge_id):

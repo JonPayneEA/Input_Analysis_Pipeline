@@ -40,7 +40,10 @@ def load_config(root=None, file=None):
     file = Path(file)
     if not file.exists():
         raise FileNotFoundError(
-            f"No {file}: copy config/config.example.yml to it and fill it in")
+            f"No {file}. Set the environment variable PIPELINES_CONFIG to your config file (on "
+            "the cluster, or at the top of the notebook with os.environ['PIPELINES_CONFIG'] = "
+            "'...'), or copy config/config.example.yml to this path and fill it in. Serverless "
+            "compute does not have the cluster's environment variables.")
     cfg = yaml.safe_load(file.read_text()) or {}
     missing = [k for k in REQUIRED if k not in cfg]
     if missing:

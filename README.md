@@ -161,8 +161,11 @@ Stage 1 checks each gauge against its own record, after Lewis et al. (2018, 2021
 the quarter hour or negative (rejected); extreme 15-minute or daily amounts, the same amount
 repeated for hours, totals dumped after an outage, and readings the EA flagged Suspect
 (suspect). Each year reports the tip resolution, the largest share of rain in one hour of the
-day, and the weekend share. Results go to `gold/qc/`: flagged readings, flagged days and years
-per gauge, and `summary.csv` across the network. Nothing in the store is removed or changed;
+day, and the weekend share. A weekly test then looks at the whole record by day of the week:
+the weekend and Monday shares of rain against chance, judged by rotating each week's days at
+random so that storms stay together, and the wet readings a weekday against a weekend day, which
+shows spurious tips from maintenance visits. Results go to `gold/qc/`: flagged readings, flagged
+days, years and the weekly profile per gauge, and `summary.csv` across the network. Nothing in the store is removed or changed;
 flags are on reach.io's scale (1 good, 3 suspect, 4 rejected) and users decide what to leave
 out. The thresholds are settings under `qc`, provisional until checked against the papers.
 

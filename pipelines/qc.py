@@ -63,6 +63,12 @@ DEFAULTS = {
     # The hour and weekend patterns are judged only in years with at least this many wet
     # readings: a part-year with a handful of showers says nothing about a clock or a reader.
     "min_wet_readings": 200,
+    # The whole-record weekly test: random rotations of each week's days give the spread of the
+    # weekend and Monday ratios with no weekly pattern; a ratio is flagged when chance gives one
+    # as far from 1 less often than `weekly_alpha`, and it is at least `weekly_min_effect` from 1.
+    "weekly_permutations": 999,
+    "weekly_alpha": 0.01,
+    "weekly_min_effect": 0.1,
 }
 
 READING_COLUMNS = ["timestamp", "value", "rule", "flag"]
@@ -209,9 +215,118 @@ def check_years(series, cfg=None):
     return out
 
 
-def gauge_summary(gauge_id, flagged, days, years):
-    """One row for the gauge: readings flagged by each rule, days suspect and rejected, and the
-    years with a resolution change, an hour-of-day or a weekend bias."""
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+WEEKLY_TEST = ("weekend_ratio_all", "weekend_p", "monday_ratio", "monday_p",
+               "weekday_wet_ratio", "weekly_pattern")
+
+
+def _daily_by_calendar_day(series):
+    """On-grid readings summed by calendar day (UTC): rain and the number of wet readings."""
+    s = series.dropna(subset=["timestamp"]).copy()
+    s["timestamp"] = pd.to_datetime(s["timestamp"], utc=True)
+    s = s[(s["timestamp"].dt.minute % 15 == 0) & (s["timestamp"].dt.second == 0)]
+    s["day"] = s["timestamp"].dt.tz_convert(None).dt.normalize()
+    s["wet"] = s["value"] > 0
+    return s.groupby("day").agg(rain=("value", "sum"), wet=("wet", "sum"))
+
+
+def _week_ratios(rain, weekday):
+    """The weekend ratio (weekend share of rain over weekend share of days) and the Monday ratio
+    (likewise for Mondays)."""
+    total = rain.sum()
+    weekend = weekday >= 5
+    monday = weekday == 0
+    if total <= 0 or not weekend.any() or not monday.any():
+        return np.nan, np.nan
+    return ((rain[weekend].sum() / total) / weekend.mean(),
+            (rain[monday].sum() / total) / monday.mean())
+
+
+def check_weekly(series, cfg=None, seed=1):
+    """The gauge's whole record by day of the week. Real rain has no weekly rhythm, so one in
+    the record points to how the gauge was read or kept: weekend rain booked to Monday (a manual
+    or storage gauge read on weekdays), weekends filled in afterwards, or spurious small tips on
+    weekdays from maintenance visits.
+
+    Returns the profile, one row a weekday: days, rain, rain_ratio (its share of the rain over
+    its share of the days; 1 is even), wet readings, wet_ratio (likewise) and the mean wet
+    reading; with the whole-record test in the columns of WEEKLY_TEST, the same on every row:
+    weekend_ratio_all and monday_ratio, each with its p-value against chance, and
+    weekday_wet_ratio (wet readings a weekday over wet readings a weekend day).
+
+    Chance is judged by rotating each complete week's seven days by a random amount, a
+    `weekly_permutations` times: storms that last several days stay together, as they do in the
+    weather, while any tie to the day of the week is broken. Shuffling single days instead would
+    make chance look too tidy and flag too many gauges. A p-value is the share of rotations whose
+    ratio lies as far from 1 as the gauge's, or further. `weekly_pattern` is true when either
+    ratio's p-value is below `weekly_alpha` and the ratio is at least `weekly_min_effect` from 1."""
+    st = settings(cfg)
+    d = _daily_by_calendar_day(series)
+    columns = ["weekday", "day", "days", "rain_mm", "rain_ratio", "wet_readings", "wet_ratio",
+               "mean_wet_mm", *WEEKLY_TEST]
+    if not len(d) or d["rain"].sum() <= 0:
+        return pd.DataFrame(columns=columns)
+    weekday = d.index.dayofweek.to_numpy()
+    days = np.bincount(weekday, minlength=7)
+    rain = np.bincount(weekday, weights=d["rain"].to_numpy(), minlength=7)
+    wet = np.bincount(weekday, weights=d["wet"].to_numpy(), minlength=7)
+    share_days = np.where(days > 0, days / days.sum(), np.nan)
+    profile = pd.DataFrame({
+        "weekday": np.arange(7), "day": WEEKDAYS, "days": days, "rain_mm": rain.round(1),
+        "rain_ratio": np.round((rain / rain.sum()) / share_days, 3),
+        "wet_readings": wet.astype(int),
+        "wet_ratio": np.round((wet / max(wet.sum(), 1)) / share_days, 3),
+        "mean_wet_mm": np.round(np.where(wet > 0, rain / np.maximum(wet, 1), np.nan), 3),
+    })
+    weekend_obs, monday_obs = _week_ratios(d["rain"].to_numpy(), weekday)
+    if not (np.isfinite(weekend_obs) and np.isfinite(monday_obs)):
+        weekend_obs = monday_obs = np.nan
+    # Complete weeks, Monday to Sunday, for the rotations
+    full = pd.Series(d["rain"].to_numpy(), index=d.index).asfreq("D")
+    start = full.index[0] + pd.Timedelta(days=(7 - full.index[0].dayofweek) % 7)
+    weeks = full[start:]
+    n_weeks = len(weeks) // 7
+    block = weeks.to_numpy()[:n_weeks * 7].reshape(n_weeks, 7)
+    block = block[np.isfinite(block).all(axis=1)]
+    p_weekend = p_monday = np.nan
+    if len(block) >= 10 and np.isfinite(weekend_obs):
+        rng = np.random.default_rng(seed)
+        wk = np.tile(np.arange(7), len(block))
+        far_w = far_m = 0
+        n = st["weekly_permutations"]
+        for _ in range(n):
+            shift = rng.integers(0, 7, len(block))
+            idx = (np.arange(7)[None, :] + shift[:, None]) % 7
+            rotated = np.take_along_axis(block, idx, axis=1).ravel()
+            w, m = _week_ratios(rotated, wk)
+            far_w += abs(w - 1) >= abs(weekend_obs - 1) - 1e-12
+            far_m += abs(m - 1) >= abs(monday_obs - 1) - 1e-12
+        p_weekend = (1 + far_w) / (n + 1)
+        p_monday = (1 + far_m) / (n + 1)
+    weekend = weekday >= 5
+    wet_day = d["wet"].to_numpy()
+    weekday_wet = (wet_day[~weekend].mean() / wet_day[weekend].mean()
+                   if weekend.any() and wet_day[weekend].mean() > 0 else np.nan)
+    pattern = any(np.isfinite(p) and p < st["weekly_alpha"]
+                  and abs(r - 1) >= st["weekly_min_effect"]
+                  for p, r in ((p_weekend, weekend_obs), (p_monday, monday_obs)))
+    test = {"weekend_ratio_all": round(float(weekend_obs), 3) if np.isfinite(weekend_obs)
+            else np.nan,
+            "weekend_p": p_weekend,
+            "monday_ratio": round(float(monday_obs), 3) if np.isfinite(monday_obs) else np.nan,
+            "monday_p": p_monday,
+            "weekday_wet_ratio": round(float(weekday_wet), 3) if np.isfinite(weekday_wet)
+            else np.nan,
+            "weekly_pattern": bool(pattern)}
+    for k, v in test.items():
+        profile[k] = v
+    return profile[columns]
+
+
+def gauge_summary(gauge_id, flagged, days, years, weekly=None):
+    """One row for the gauge: readings flagged by each rule, days suspect and rejected, the
+    years with a resolution change, an hour-of-day or a weekend bias, and the whole-record
+    weekly test (check_weekly) when given."""
     counts = flagged["rule"].value_counts() if len(flagged) else pd.Series(dtype=int)
     row = {"gauge_id": gauge_id,
            "first_year": int(years["year"].min()) if len(years) else None,
@@ -224,4 +339,6 @@ def gauge_summary(gauge_id, flagged, days, years):
     for col in ("resolution_change", "hour_bias", "weekend_bias"):
         yrs = years.loc[years[col], "year"].tolist() if len(years) else []
         row[f"{col}_years"] = " ".join(str(y) for y in yrs)
+    for col in WEEKLY_TEST:
+        row[col] = weekly[col].iloc[0] if weekly is not None and len(weekly) else np.nan
     return row

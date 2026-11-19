@@ -130,6 +130,18 @@ def test_run_qc_saves_skips_and_summarises(tmp_path, monkeypatch):
     assert again.loc["A", "days_suspect"] == 1
     flags = rain_qc.day_flags(cfg, "A")
     assert flags["date"].tolist() == [pd.Timestamp("2023-03-01")]
+    # The weekly profile is saved with the rest and read back unchanged on the second run;
+    # one day of rain has no weekend, so its test is left blank
+    profile = rain_qc.weekly_profile(cfg, "A")
+    assert list(profile["day"]) == list(qc.WEEKDAYS)
+    assert profile["days"].sum() == 2 and pd.isna(summary.loc["A", "weekend_ratio_all"])
+    assert rain_qc.weekly_profile(cfg, "E").empty
+
+
+def test_weekly_plot():
+    s = daily_readings("2024-01-01", [3, 1, 1, 1, 1, 0, 0] * 20)
+    fig = rain_qc.plot_weekly(qc.check_weekly(s, {"qc": {"weekly_permutations": 49}}), "G:")
+    assert "Monday 3.00" in fig.axes[0].get_title()
 
 
 
@@ -140,3 +152,59 @@ def test_one_odd_small_reading_is_not_a_change_of_resolution():
     y = qc.check_years(pd.concat([a, b]), {"qc": {"repeat_runs": []}}).set_index("year")
     assert y.loc[2022, "resolution_mm"] == 0.2
     assert not bool(y.loc[2022, "resolution_change"])
+
+
+def daily_readings(days, values, hour=10):
+    """One reading a calendar day at `hour` UTC, of values[d] mm on day d."""
+    t = pd.date_range(days, periods=len(values), freq="D", tz="UTC") + pd.Timedelta(hours=hour)
+    return pd.DataFrame({"timestamp": t, "value": values})
+
+
+def test_weekend_rain_booked_to_monday_is_found():
+    # 1 mm every day for 52 weeks from a Monday, but the weekend's 2 mm booked to Monday:
+    # Monday 3 mm, Tuesday to Friday 1 mm, the weekend nothing. Weekend share 0, so the weekend
+    # ratio is 0; Monday holds 3 of every 7 mm on 1 day in 7, a ratio of (3 / 7) / (1 / 7) = 3.
+    week = [3, 1, 1, 1, 1, 0, 0]
+    s = daily_readings("2024-01-01", week * 52)
+    w = qc.check_weekly(s, {"qc": {"weekly_permutations": 199}})
+    r = w.iloc[0]
+    assert r["weekend_ratio_all"] == 0 and r["monday_ratio"] == 3
+    assert list(w["rain_ratio"]) == [3, 1, 1, 1, 1, 0, 0]
+    # No rotation of these weeks puts nothing on the weekend every week: the smallest p-value
+    # 199 rotations can give, 1 / 200
+    assert r["weekend_p"] == 1 / 200 and r["monday_p"] == 1 / 200
+    assert bool(r["weekly_pattern"])
+
+
+def test_no_weekly_pattern_in_random_rain():
+    # Rain drawn alike every day: no day of the week is special, so the test should not flag it
+    rng = np.random.default_rng(4)
+    s = daily_readings("2020-01-06", rng.gamma(0.5, 4, 7 * 260))
+    r = qc.check_weekly(s, {"qc": {"weekly_permutations": 299}}).iloc[0]
+    assert abs(r["weekend_ratio_all"] - 1) < 0.15
+    assert r["weekend_p"] > 0.01 and not bool(r["weekly_pattern"])
+
+
+def test_weekday_maintenance_tips_show_in_the_wet_readings():
+    # Rain of 1 mm a day, every day, in one reading at 10:00; on weekdays also a spurious 0.2 mm
+    # tip at 14:00. Wet readings: 2 a weekday, 1 a weekend day, so weekday_wet_ratio is 2; the
+    # weekday mean wet reading is (1 + 0.2) / 2 = 0.6 mm against 1 mm at weekends.
+    days = 7 * 30
+    s = daily_readings("2024-01-01", [1.0] * days)
+    tips = daily_readings("2024-01-01", [0.2] * days, hour=14)
+    tips = tips[tips["timestamp"].dt.dayofweek < 5]
+    w = qc.check_weekly(pd.concat([s, tips]), {"qc": {"weekly_permutations": 99}})
+    assert w.iloc[0]["weekday_wet_ratio"] == 2
+    assert list(w["mean_wet_mm"]) == [0.6] * 5 + [1.0] * 2
+
+
+def test_weekly_results_join_the_summary():
+    s = daily_readings("2024-01-01", [3, 1, 1, 1, 1, 0, 0] * 20)
+    row = qc.gauge_summary("G", pd.DataFrame(columns=qc.READING_COLUMNS),
+                           pd.DataFrame(columns=qc.DAY_COLUMNS), qc.check_years(s),
+                           qc.check_weekly(s, {"qc": {"weekly_permutations": 199}}))
+    assert row["monday_ratio"] == 3 and bool(row["weekly_pattern"])
+    # 49 rotations cannot give a p-value below 1 / 50 = 0.02, above the 0.01 needed: no flag
+    few = qc.check_weekly(s, {"qc": {"weekly_permutations": 49}}).iloc[0]
+    assert few["weekend_p"] == 1 / 50 and not bool(few["weekly_pattern"])
+    assert qc.check_weekly(s.iloc[0:0]).empty
