@@ -31,3 +31,17 @@ def test_a_table_with_rows_is_displayed():
     t = pd.DataFrame({"a": [1, 2]})
     assert show(t, shown.append) is True
     assert len(shown) == 1 and shown[0] is t
+
+
+def test_rain_notebooks_show_tables_through_show():
+    # A table passed straight to display() fails when it is empty, so the rain notebooks pass
+    # tables to show() and give display() only figures. Two direct calls, on the odd ones out
+    # in 07 and the stage 3 summary in 08, came back in a commit made in the Git folder.
+    import re
+    from pathlib import Path
+    jobs = Path(__file__).resolve().parents[2] / "jobs" / "rain_gauges"
+    direct = re.compile(r"(?<![\w.])display\((?!fig\))")
+    found = [f"{p.name}:{n}" for p in sorted(jobs.glob("*.py"))
+             for n, line in enumerate(p.read_text().splitlines(), start=1)
+             if direct.search(line.split("#")[0])]
+    assert found == []

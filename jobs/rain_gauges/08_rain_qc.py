@@ -229,4 +229,3 @@ if len(measured):
           f"to {q[2]}")
     print("Flagged:", measured["nb_flag"].value_counts().to_dict())
 show(swaps.head(40), display, "No gauge left whole tips.")  # noqa: F821
-display(summary3.head(40))  # noqa: F821
