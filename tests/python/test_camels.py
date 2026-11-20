@@ -82,7 +82,7 @@ def write_attributes(att, rows):
         "hydrogeology": ["frac_high_perc", "inter_high_perc"],
         "landcover": ["urban_perc_2015"],
         "humaninfluence": ["benchmark_catch", "reservoir_normalised_upstream_capacity"],
-        "hydrologic": ["baseflow_index", "q_mean"],
+        "hydrologic": ["baseflow_index", "q_mean", "runoff_ratio"],
         "hydrometry": ["hourly_flow_perc_complete", "max_gauging_flow"],
     }
     for table, cols in owners.items():
@@ -95,6 +95,7 @@ BASE = {"gauge_name": "Test", "gauge_lat": 52.0, "area": 50.0, "frac_snow": 0.02
         "sand_perc": 40.0, "frac_high_perc": 10.0, "inter_high_perc": 5.0,
         "urban_perc_2015": 2.0, "benchmark_catch": "Y",
         "reservoir_normalised_upstream_capacity": 0.0, "baseflow_index": 0.5, "q_mean": 1.2,
+        "runoff_ratio": 0.5,
         "hourly_flow_perc_complete": 98.0, "max_gauging_flow": 40.0}
 
 
@@ -143,12 +144,19 @@ def test_screening_rules(tmp_path):
         "E": {**BASE, "reservoir_normalised_upstream_capacity": 0.5,     # 0.5 > 0.2, and snow
               "frac_snow": 0.2, "benchmark_catch": "N"},
         "F": {**BASE, "frac_snow": np.nan},                        # missing does not exclude
+        "G": {**BASE, "baseflow_index": 0.9, "runoff_ratio": 0.29},  # 0.9 > 0.85, 0.29 < 0.35
+        "H": {**BASE, "baseflow_index": 0.9, "runoff_ratio": 0.5},   # high BFI, water kept
     }
     write_attributes(att, rows)
     t = camels.attributes(tmp_path)
     s = camels.screening(t["descriptors"], t["hydrometry"]).set_index("gauge_id")
     assert s["use"].to_dict() == {"A": True, "B": False, "C": False, "D": False, "E": False,
-                                  "F": True}
+                                  "F": True, "G": True, "H": True}
+    # With the signatures, the chalk-like catchment losing its water is left out
+    s = camels.screening(t["descriptors"], t["hydrometry"], signatures=t["signatures"])
+    s = s.set_index("gauge_id")
+    assert s.at["G", "reasons"] == "groundwater losses"
+    assert bool(s.at["H", "use"]) and bool(s.at["A", "use"])
     assert s.at["B", "reasons"] == "snow"
     assert s.at["C", "reasons"] == "hourly record incomplete"
     assert s.at["D", "high_perm_perc"] == 55.0

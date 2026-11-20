@@ -10,8 +10,8 @@
 # Tier:         1
 # Inputs:       store_root from the config; gold/camels_gb_v2/ as 01_camels_prepare writes it
 # Outputs:      gold/camels_gb_v2/trial/: runs.csv, seed_test.csv, structures.csv,
-#               runtime.csv and the calibration projects
-# Dependencies: R; pdmS7 (>= 0.36.0), arrow and yaml installed on the cluster
+#               groundwater.csv, runtime.csv and the calibration projects
+# Dependencies: R; pdmS7 (>= 0.37.0), arrow and yaml installed on the cluster
 # ============================================================
 
 # COMMAND ----------
@@ -37,6 +37,11 @@
 # MAGIC   score (within 0.01 NSE)? The two surface stores are compared as a sorted pair, since
 # MAGIC   swapping them gives the same flow. `kb_share` and `widest_without_kb` show whether the
 # MAGIC   groundwater store alone is undetermined.
+# MAGIC - **Groundwater arm**: up to six aquifer-dominated catchments (those screened out for
+# MAGIC   aquifers or groundwater losses), each calibrated three ways with the rainfall factor
+# MAGIC   fixed at 1: the chosen structure, with underflow, and with constant abstraction, two
+# MAGIC   seeds each. The extension earns its place where it scores clearly higher and its seeds
+# MAGIC   agree.
 # MAGIC - **Runtime**: minutes per catchment, and the hours the bulk run will take.
 # MAGIC
 # MAGIC Run `01_camels_prepare` first. The test windows are not scored; they are kept for the
@@ -47,14 +52,15 @@
 # Settings. CORES: catchments calibrated at once; leave a few of the cluster's cores free.
 CORES <- 12
 STARTS <- 3       # random starts per search
-BUDGET <- 300     # model runs per start, DDS
+BUDGET <- 600     # model runs per start, DDS
+GW_N <- 6         # catchments in the groundwater arm; 0 to skip it
 RECORDED_AS <- "" # the name the calibration logs record; empty: the cluster user
 
 # COMMAND ----------
 
 # The packages. pdmS7 must be installed, not loaded from source: the trial calibrates in
 # parallel worker processes, and each loads the installed package.
-need <- c(pdmS7 = "0.36.0", arrow = "0", yaml = "0")
+need <- c(pdmS7 = "0.37.0", arrow = "0", yaml = "0")
 missing <- names(need)[!vapply(names(need), requireNamespace, logical(1), quietly = TRUE)]
 if (length(missing)) {
   stop("Install on the cluster (Compute, the cluster, Libraries): ",
@@ -62,7 +68,7 @@ if (length(missing)) {
 }
 if (utils::packageVersion("pdmS7") < need[["pdmS7"]]) {
   stop("pdmS7 ", as.character(utils::packageVersion("pdmS7")), " is installed; the trial ",
-       "needs 0.36.0 or later, from master", call. = FALSE)
+       "needs 0.37.0 or later, from master", call. = FALSE)
 }
 cat("pdmS7", as.character(utils::packageVersion("pdmS7")), "\n")
 
@@ -101,10 +107,12 @@ cat("Config:", config_file, "\nStore:", cfg$store_root, "\nTrial script:", scrip
 
 # COMMAND ----------
 
-# The trial: seed 1 for every catchment, then seed 2. Each takes about as long as the slowest
-# catchment; the structure choice makes seed 1 the longer.
+# The trial, in two rounds: first every structure choice (main trial and groundwater arm),
+# then the second seeds and the groundwater variants. Each round takes about as long as its
+# slowest calibration; the structure choice makes the first the longer.
 Sys.setenv(CAMELS_STORE = cfg$store_root, CAMELS_CORES = as.character(CORES),
-           CAMELS_STARTS = as.character(STARTS), CAMELS_BUDGET = as.character(BUDGET))
+           CAMELS_STARTS = as.character(STARTS), CAMELS_BUDGET = as.character(BUDGET),
+           CAMELS_GW_N = as.character(GW_N))
 if (nzchar(RECORDED_AS)) Sys.setenv(PDMS7_USER = RECORDED_AS)
 if (!nzchar(Sys.getenv("PDMS7_USER"))) {
   Sys.setenv(PDMS7_USER = Sys.getenv("USER", "CAMELS-GB trial"))
@@ -127,7 +135,12 @@ show(seed_test, "No catchment finished both seeds.")
 
 # COMMAND ----------
 
+cat("Groundwater arm: the chosen structure, with underflow, and with abstraction\n")
+show(if (exists("groundwater")) groundwater, "No groundwater arm was run.")
+
+# COMMAND ----------
+
 cat("Runtime, and the hours the bulk run would take\n")
 show(runtime, "No catchment finished.")
-failed <- runs[runs$state != "done", c("seed", "gauge", "state", "message")]
+failed <- runs[runs$state != "done", c("arm", "seed", "gauge", "state", "message")]
 show(failed, "Every calibration finished.")
