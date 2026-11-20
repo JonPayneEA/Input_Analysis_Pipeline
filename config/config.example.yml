@@ -86,3 +86,5 @@ camels:
   max_frac_snow: 0.15           # share of precipitation as snow
   max_high_perm: 50.0           # per cent of the catchment on highly productive aquifers
   max_reservoir_capacity: 0.2   # reservoir capacity over mean annual runoff
+  max_bfi: 0.85                 # baseflow index above this with a runoff ratio under
+  min_runoff_ratio: 0.35        # min_runoff_ratio: groundwater lost unseen; left out

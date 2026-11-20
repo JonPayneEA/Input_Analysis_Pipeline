@@ -242,7 +242,9 @@ of catchment attributes. `jobs/camels_gb/01_camels_prepare.py` turns it into PDM
   **Hydrometry**: record completeness, the highest gauged flow, flow uncertainty.
 - **Screening**: which catchments suit the PDM, and why any are left out: an hourly record
   under 80% complete, more than 15% of precipitation as snow, more than half the catchment on
-  highly productive aquifers, or reservoir capacity above a fifth of the mean annual runoff.
+  highly productive aquifers, reservoir capacity above a fifth of the mean annual runoff, or
+  groundwater losses: a baseflow index above 0.85 with a runoff ratio under 0.35, the mark of
+  water leaving the catchment unseen, by underflow or abstraction.
   The thresholds are settings, provisional until the trial calibrations.
 
 Not yet known, because the v2 documentation is not with the data on the platform: what the

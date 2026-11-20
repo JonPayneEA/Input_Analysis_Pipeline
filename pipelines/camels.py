@@ -50,6 +50,8 @@ DEFAULTS = {
     "max_frac_snow": 0.15,             # share of precipitation falling as snow
     "max_high_perm": 50.0,             # area on highly productive aquifers, per cent
     "max_reservoir_capacity": 0.2,     # reservoir capacity over mean annual runoff volume
+    "max_bfi": 0.85,                   # with a runoff ratio under min_runoff_ratio: groundwater
+    "min_runoff_ratio": 0.35,          # leaving the catchment unseen (underflow, abstraction)
 }
 
 DESCRIPTOR_TABLES = ("topographic", "climatic", "soil", "hydrogeology", "landcover",
@@ -182,22 +184,31 @@ def _flagged(values):
     return text.isin(["1", "1.0", "y", "yes", "true"])
 
 
-def screening(desc, hydrometry, cfg=None):
+def screening(desc, hydrometry, cfg=None, signatures=None):
     """Which catchments suit a PDM calibration, with the reasons for leaving any out: an
     hourly flow record less complete than `min_hourly_complete`; snow above `max_frac_snow`;
     more than `max_high_perm` per cent on highly productive aquifers (chalk and the like,
     which need the groundwater extension); reservoir capacity above `max_reservoir_capacity`
-    of the mean annual runoff. The CAMELS benchmark flag (near-natural catchments) is shown,
-    not required. Missing values do not exclude."""
+    of the mean annual runoff; and, given the signatures, groundwater losses: a baseflow index
+    above `max_bfi` with a runoff ratio under `min_runoff_ratio`, the mark of groundwater
+    leaving the catchment unseen, by underflow or abstraction. The signatures choose
+    catchments only; they go into no model. The CAMELS benchmark flag (near-natural
+    catchments) is shown, not required. Missing values do not exclude."""
     st = settings(cfg)
     t = desc.merge(hydrometry, on="gauge_id", how="left")
+    if signatures is not None:
+        keep = [c for c in ("gauge_id", "baseflow_index", "runoff_ratio") if c in signatures]
+        t = t.merge(signatures[keep], on="gauge_id", how="left")
+    missing = pd.Series(np.nan, index=t.index)
     high = t.get("frac_high_perc", 0).fillna(0) + t.get("inter_high_perc", 0).fillna(0)
     rules = {
         "hourly record incomplete": t["hourly_flow_perc_complete"] < st["min_hourly_complete"],
         "snow": t["frac_snow"] > st["max_frac_snow"],
         "highly productive aquifer": high > st["max_high_perm"],
         "reservoirs": t.get("reservoir_normalised_upstream_capacity",
-                            pd.Series(np.nan, index=t.index)) > st["max_reservoir_capacity"],
+                            missing) > st["max_reservoir_capacity"],
+        "groundwater losses": (t.get("baseflow_index", missing) > st["max_bfi"])
+        & (t.get("runoff_ratio", missing) < st["min_runoff_ratio"]),
     }
     reasons = pd.Series([""] * len(t), index=t.index)
     for name, hit in rules.items():
@@ -244,6 +255,6 @@ def run(cfg, gauges=None, refresh=False):
         store.write_parquet(hourly_table(f["hourly"], f["daily"], lat, st), str(target))
         if k % 50 == 0:
             print(f"{k}/{len(ids)} catchments", flush=True)
-    screen = screening(tables["descriptors"], tables["hydrometry"], st)
+    screen = screening(tables["descriptors"], tables["hydrometry"], st, tables["signatures"])
     store.write_csv(screen, str(out / "screening.csv"))
     return screen
