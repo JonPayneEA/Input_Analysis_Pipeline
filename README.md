@@ -254,10 +254,14 @@ licence; they are used only to choose catchments.
 ### The calibration trial
 
 `jobs/camels_gb/02_camels_trial.r` runs the trial before the bulk calibration: twelve screened
-catchments, spread through the baseflow index, each calibrated three times with pdmS7 (Hydro-PE
-with two seeds, CHESS-PE with one). It shows whether two seeds give the same calibration, how
-far the evaporation product moves the scores and parameters, and how long the bulk run will
-take. Results go to `gold/camels_gb_v2/trial/`.
+catchments, spread through the baseflow index, each calibrated twice with pdmS7 by the
+protocol the bulk run will use. The first seed chooses the structure on the record and
+calibrates it in stages (DDS, a Box-Cox polish, the largest events, the rainfall factor free
+within 0.8 to 1.2, Hydro-PE); the second calibrates the same structure from fresh starts. It
+shows the structure each catchment chose, whether two seeds give the same calibration, and how
+long the bulk run will take. Results go to `gold/camels_gb_v2/trial/`. (The first trial
+compared Hydro-PE with CHESS-PE: CHESS-PE scored the same or worse at every catchment, so
+Hydro-PE is used throughout.)
 
 It is the one R notebook here. It needs a cluster you own with R enabled, not a shared one, and
 pdmS7 0.35.0 or later, arrow and yaml installed on it as cluster libraries: the calibrations run
