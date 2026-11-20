@@ -1,17 +1,17 @@
 # Databricks notebook source
 # ============================================================
 # Tool:         02 CAMELS-GB v2 calibration trial
-# Description:  The 12-catchment trial before the bulk PDM calibration: whether two seeds give
-#               the same calibration, how much the evaporation product matters, and how long
+# Description:  The 12-catchment trial before the bulk PDM calibration: the structure each
+#               catchment chooses, whether two seeds give the same calibration, and how long
 #               the bulk run will take. Runs camels_trial.R beside it
 # Flode Module: Input_Analysis_Pipeline
 # Author:       Input_Analysis_Pipeline contributors
 # Created:      2026-11-19
 # Tier:         1
 # Inputs:       store_root from the config; gold/camels_gb_v2/ as 01_camels_prepare writes it
-# Outputs:      gold/camels_gb_v2/trial/: runs.csv, seed_test.csv, pet_test.csv, runtime.csv
-#               and the calibration projects
-# Dependencies: R; pdmS7 (>= 0.35.0), arrow and yaml installed on the cluster
+# Outputs:      gold/camels_gb_v2/trial/: runs.csv, seed_test.csv, structures.csv,
+#               runtime.csv and the calibration projects
+# Dependencies: R; pdmS7 (>= 0.36.0), arrow and yaml installed on the cluster
 # ============================================================
 
 # COMMAND ----------
@@ -24,32 +24,37 @@
 # MAGIC beside this notebook, a copy of the script in pdmS7 (`inst/scripts/camels_trial.R`); this
 # MAGIC notebook finds the store, checks the packages, runs the trial and shows its tables.
 # MAGIC
-# MAGIC Twelve screened catchments, spread through the baseflow index, are calibrated three
-# MAGIC times with the staged DDS search: Hydro-PE with two seeds, and CHESS-PE with one.
+# MAGIC Twelve screened catchments, spread through the baseflow index, each calibrated twice
+# MAGIC by the protocol the bulk run will use. Seed 1 chooses the structure on the record
+# MAGIC (recharge, soil store, groundwater store), then calibrates in stages by DDS: volume and
+# MAGIC baseflow on 6-hour steps, fast response, a Box-Cox polish, and the largest events. The
+# MAGIC rainfall factor is free within 0.8 to 1.2, and the evaporation is Hydro-PE. Seed 2
+# MAGIC calibrates the same structure from fresh starts.
 # MAGIC
+# MAGIC - **Structures**: what each catchment chose, with its validation NSE and runoff ratio. A
+# MAGIC   runoff ratio far from the others, or above 1, points to the data, not the model.
 # MAGIC - **Seed test**: do two seeds give the same parameters (within 5% of each range) and
-# MAGIC   score (within 0.01 NSE)? If not, the bulk run needs more starts or fewer free
-# MAGIC   parameters.
-# MAGIC - **Evaporation test**: how far the validation score and the parameters move with the
-# MAGIC   evaporation product.
+# MAGIC   score (within 0.01 NSE)? The two surface stores are compared as a sorted pair, since
+# MAGIC   swapping them gives the same flow. `kb_share` and `widest_without_kb` show whether the
+# MAGIC   groundwater store alone is undetermined.
 # MAGIC - **Runtime**: minutes per catchment, and the hours the bulk run will take.
 # MAGIC
-# MAGIC Run `01_camels_prepare` first: the trial reads each evaporation product from the hourly
-# MAGIC tables. The test windows are not scored; they are kept for the final protocol.
+# MAGIC Run `01_camels_prepare` first. The test windows are not scored; they are kept for the
+# MAGIC final protocol.
 
 # COMMAND ----------
 
 # Settings. CORES: catchments calibrated at once; leave a few of the cluster's cores free.
 CORES <- 12
-STARTS <- 4       # random starts per stage
-BUDGET <- 300     # model runs per start and stage
+STARTS <- 3       # random starts per search
+BUDGET <- 300     # model runs per start, DDS
 RECORDED_AS <- "" # the name the calibration logs record; empty: the cluster user
 
 # COMMAND ----------
 
 # The packages. pdmS7 must be installed, not loaded from source: the trial calibrates in
 # parallel worker processes, and each loads the installed package.
-need <- c(pdmS7 = "0.35.0", arrow = "0", yaml = "0")
+need <- c(pdmS7 = "0.36.0", arrow = "0", yaml = "0")
 missing <- names(need)[!vapply(names(need), requireNamespace, logical(1), quietly = TRUE)]
 if (length(missing)) {
   stop("Install on the cluster (Compute, the cluster, Libraries): ",
@@ -57,7 +62,7 @@ if (length(missing)) {
 }
 if (utils::packageVersion("pdmS7") < need[["pdmS7"]]) {
   stop("pdmS7 ", as.character(utils::packageVersion("pdmS7")), " is installed; the trial ",
-       "needs 0.35.0 or later, from master", call. = FALSE)
+       "needs 0.36.0 or later, from master", call. = FALSE)
 }
 cat("pdmS7", as.character(utils::packageVersion("pdmS7")), "\n")
 
@@ -96,7 +101,8 @@ cat("Config:", config_file, "\nStore:", cfg$store_root, "\nTrial script:", scrip
 
 # COMMAND ----------
 
-# The trial: three batches, each about the time of the slowest catchment's calibration.
+# The trial: seed 1 for every catchment, then seed 2. Each takes about as long as the slowest
+# catchment; the structure choice makes seed 1 the longer.
 Sys.setenv(CAMELS_STORE = cfg$store_root, CAMELS_CORES = as.character(CORES),
            CAMELS_STARTS = as.character(STARTS), CAMELS_BUDGET = as.character(BUDGET))
 if (nzchar(RECORDED_AS)) Sys.setenv(PDMS7_USER = RECORDED_AS)
@@ -111,17 +117,17 @@ source(script)
 show <- function(table, empty) {
   if (is.null(table) || !nrow(table)) cat(empty, "\n") else display(table)  # nolint
 }
+cat("Structures chosen, with each catchment's validation NSE and runoff ratio\n")
+show(structures, "No catchment finished.")
+
+# COMMAND ----------
+
 cat("Seed test: the same answer from both seeds?\n")
 show(seed_test, "No catchment finished both seeds.")
 
 # COMMAND ----------
 
-cat("Evaporation test: CHESS-PE against Hydro-PE\n")
-show(pet_test, "No catchment finished both evaporation products.")
-
-# COMMAND ----------
-
 cat("Runtime, and the hours the bulk run would take\n")
 show(runtime, "No catchment finished.")
-failed <- runs[runs$state != "done", c("run", "gauge", "state", "message")]
+failed <- runs[runs$state != "done", c("seed", "gauge", "state", "message")]
 show(failed, "Every calibration finished.")
