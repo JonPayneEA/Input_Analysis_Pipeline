@@ -244,7 +244,9 @@ of catchment attributes. `jobs/camels_gb/01_camels_prepare.py` turns it into PDM
   under 80% complete, more than 15% of precipitation as snow, more than half the catchment on
   highly productive aquifers, reservoir capacity above a fifth of the mean annual runoff, or
   groundwater losses: a baseflow index above 0.85 with a runoff ratio under 0.35, the mark of
-  water leaving the catchment unseen, by underflow or abstraction.
+  water leaving the catchment unseen, by underflow or abstraction; or water from outside the
+  catchment: a runoff ratio above 1, more flow than the rain supplies, as where springs are fed
+  from a neighbouring aquifer.
   The thresholds are settings, provisional until the trial calibrations.
 
 Not yet known, because the v2 documentation is not with the data on the platform: what the
@@ -257,11 +259,12 @@ licence; they are used only to choose catchments.
 
 `jobs/camels_gb/02_camels_trial.r` runs the trial before the bulk calibration: twelve screened
 catchments, spread through the baseflow index, each calibrated twice with pdmS7 by the
-protocol the bulk run will use. The first seed chooses the structure on the record and
-calibrates it in stages (DDS, a Box-Cox polish, the largest events, the rainfall factor free
-within 0.8 to 1.2, Hydro-PE); the second calibrates the same structure from fresh starts. It
-shows the structure each catchment chose, whether two seeds give the same calibration, and how
-long the bulk run will take. Results go to `gold/camels_gb_v2/trial/`. (The first trial
+protocol the bulk run will use: the structure chosen on the record, then stages (DDS, a
+Box-Cox polish, the largest events), with the rainfall factor fixed at 1 and Hydro-PE. Both
+seeds run the whole protocol, so the seed test shows whether it gives the same model, and the
+same structure, twice. Catchments with snow also run with PACK ahead of the PDM, and a
+groundwater arm tests the groundwater extension on aquifer catchments. It shows how long the
+bulk run will take. Results go to `gold/camels_gb_v2/trial/`. (The first trial
 compared Hydro-PE with CHESS-PE: CHESS-PE scored the same or worse at every catchment, so
 Hydro-PE is used throughout.)
 

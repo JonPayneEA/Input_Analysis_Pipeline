@@ -88,3 +88,4 @@ camels:
   max_reservoir_capacity: 0.2   # reservoir capacity over mean annual runoff
   max_bfi: 0.85                 # baseflow index above this with a runoff ratio under
   min_runoff_ratio: 0.35        # min_runoff_ratio: groundwater lost unseen; left out
+  max_runoff_ratio: 1.0         # more flow than rain: water from outside; left out
