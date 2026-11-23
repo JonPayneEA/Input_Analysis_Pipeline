@@ -24,6 +24,8 @@ writes, so the store reads back in R with `reach.io::read_bronze()`.
 | `jobs/camels_gb/01_camels_prepare.py` | The CAMELS-GB v2 preparation, as a notebook |
 | `jobs/camels_gb/02_camels_trial.r` | The 12-catchment calibration trial, in R, for a personal cluster |
 | `jobs/camels_gb/camels_trial.R` | The trial script the notebook runs, a copy of pdmS7's |
+| `jobs/camels_gb/03_camels_bulk.r` | The bulk calibration of every screened catchment, in R |
+| `jobs/camels_gb/camels_bulk.R` | The bulk script the notebook runs, a copy of pdmS7's |
 | `pipelines/config.py` | Reading the configuration |
 | `config/config.example.yml` | The settings. Copy it; never commit the copy |
 | `tests/python/` | Tests, with a fake API so none touches the network |
@@ -240,13 +242,17 @@ of catchment attributes. `jobs/camels_gb/01_camels_prepare.py` turns it into PDM
   index, runoff ratio and the flow percentiles) come from the gauged flow, so they are kept in
   a table of their own: a model of parameters for ungauged catchments must never see them.
   **Hydrometry**: record completeness, the highest gauged flow, flow uncertainty.
-- **Screening**: which catchments suit the PDM, and why any are left out: an hourly record
-  under 80% complete, more than 15% of precipitation as snow, more than half the catchment on
-  highly productive aquifers, reservoir capacity above a fifth of the mean annual runoff, or
-  groundwater losses: a baseflow index above 0.85 with a runoff ratio under 0.35, the mark of
-  water leaving the catchment unseen, by underflow or abstraction; or water from outside the
-  catchment: a runoff ratio above 1, more flow than the rain supplies, as where springs are fed
-  from a neighbouring aquifer.
+- **Screening**: which catchments suit the PDM, how each is to be calibrated, and why any
+  are left out. Left out: an hourly record under 80% complete, more than 25% of precipitation
+  as snow, reservoir capacity above a fifth of the mean annual runoff, more than 30% urban
+  (sewers and culverts the PDM does not represent), or a runoff ratio above 2 (more water from
+  outside than the groundwater extension can bring in). The `treatment` column, from the water
+  balance: `abstraction` for a groundwater-fed catchment losing water (runoff ratio under
+  0.35), `import` for one gaining (above 1), `free_fc` for one that is not groundwater-fed with
+  a runoff ratio of 0.95 or more (the rain likely too low), `standard` for the rest. A
+  catchment is groundwater-fed with a baseflow index of 0.65 or more, or more than half on
+  highly productive aquifers. `pack` marks a snow share of 5% or more, for PACK ahead of the
+  PDM. The thresholds come from four trials on up to 18 catchments each, and are settings.
   The thresholds are settings, provisional until the trial calibrations.
 
 Not yet known, because the v2 documentation is not with the data on the platform: what the
@@ -255,7 +261,7 @@ until the CAMELS-GB v2 paper (ESSD 18, 4345-4371, 2026) says. The abstraction fi
 the human-influence attributes came to CAMELS from the Environment Agency under a conditional
 licence; they are used only to choose catchments.
 
-### The calibration trial
+### The calibration trial and the bulk run
 
 `jobs/camels_gb/02_camels_trial.r` runs the trial before the bulk calibration: twelve screened
 catchments, spread through the baseflow index, each calibrated twice with pdmS7 by the
