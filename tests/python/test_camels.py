@@ -146,16 +146,20 @@ def test_screening_rules(tmp_path):
         "F": {**BASE, "frac_snow": np.nan},                        # missing does not exclude
         "G": {**BASE, "baseflow_index": 0.9, "runoff_ratio": 0.29},  # 0.9 > 0.85, 0.29 < 0.35
         "H": {**BASE, "baseflow_index": 0.9, "runoff_ratio": 0.5},   # high BFI, water kept
+        "I": {**BASE, "runoff_ratio": 3.17},                         # 3.17 > 1: Costa Beck
+        "J": {**BASE, "runoff_ratio": 1.0},                          # exactly 1: kept
     }
     write_attributes(att, rows)
     t = camels.attributes(tmp_path)
     s = camels.screening(t["descriptors"], t["hydrometry"]).set_index("gauge_id")
     assert s["use"].to_dict() == {"A": True, "B": False, "C": False, "D": False, "E": False,
-                                  "F": True, "G": True, "H": True}
+                                  "F": True, "G": True, "H": True, "I": True, "J": True}
     # With the signatures, the chalk-like catchment losing its water is left out
     s = camels.screening(t["descriptors"], t["hydrometry"], signatures=t["signatures"])
     s = s.set_index("gauge_id")
     assert s.at["G", "reasons"] == "groundwater losses"
+    assert s.at["I", "reasons"] == "water from outside the catchment"
+    assert bool(s.at["J", "use"])
     assert bool(s.at["H", "use"]) and bool(s.at["A", "use"])
     assert s.at["B", "reasons"] == "snow"
     assert s.at["C", "reasons"] == "hourly record incomplete"

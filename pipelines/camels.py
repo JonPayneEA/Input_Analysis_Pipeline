@@ -52,6 +52,7 @@ DEFAULTS = {
     "max_reservoir_capacity": 0.2,     # reservoir capacity over mean annual runoff volume
     "max_bfi": 0.85,                   # with a runoff ratio under min_runoff_ratio: groundwater
     "min_runoff_ratio": 0.35,          # leaving the catchment unseen (underflow, abstraction)
+    "max_runoff_ratio": 1.0,           # more flow than rain: water from outside the catchment
 }
 
 DESCRIPTOR_TABLES = ("topographic", "climatic", "soil", "hydrogeology", "landcover",
@@ -191,7 +192,9 @@ def screening(desc, hydrometry, cfg=None, signatures=None):
     which need the groundwater extension); reservoir capacity above `max_reservoir_capacity`
     of the mean annual runoff; and, given the signatures, groundwater losses: a baseflow index
     above `max_bfi` with a runoff ratio under `min_runoff_ratio`, the mark of groundwater
-    leaving the catchment unseen, by underflow or abstraction. The signatures choose
+    leaving the catchment unseen, by underflow or abstraction; and a runoff ratio above
+    `max_runoff_ratio`, more flow than the rain supplies: water from outside the catchment,
+    such as springs fed from a neighbouring aquifer. The signatures choose
     catchments only; they go into no model. The CAMELS benchmark flag (near-natural
     catchments) is shown, not required. Missing values do not exclude."""
     st = settings(cfg)
@@ -209,6 +212,8 @@ def screening(desc, hydrometry, cfg=None, signatures=None):
                             missing) > st["max_reservoir_capacity"],
         "groundwater losses": (t.get("baseflow_index", missing) > st["max_bfi"])
         & (t.get("runoff_ratio", missing) < st["min_runoff_ratio"]),
+        "water from outside the catchment": t.get("runoff_ratio", missing)
+        > st["max_runoff_ratio"],
     }
     reasons = pd.Series([""] * len(t), index=t.index)
     for name, hit in rules.items():

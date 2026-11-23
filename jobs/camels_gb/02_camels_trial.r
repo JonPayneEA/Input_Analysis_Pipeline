@@ -10,7 +10,7 @@
 # Tier:         1
 # Inputs:       store_root from the config; gold/camels_gb_v2/ as 01_camels_prepare writes it
 # Outputs:      gold/camels_gb_v2/trial/: runs.csv, seed_test.csv, structures.csv,
-#               groundwater.csv, runtime.csv and the calibration projects
+#               groundwater.csv, snow.csv, runtime.csv and the calibration projects
 # Dependencies: R; pdmS7 (>= 0.37.0), arrow and yaml installed on the cluster
 # ============================================================
 
@@ -24,24 +24,27 @@
 # MAGIC beside this notebook, a copy of the script in pdmS7 (`inst/scripts/camels_trial.R`); this
 # MAGIC notebook finds the store, checks the packages, runs the trial and shows its tables.
 # MAGIC
-# MAGIC Twelve screened catchments, spread through the baseflow index, each calibrated twice
-# MAGIC by the protocol the bulk run will use. Seed 1 chooses the structure on the record
-# MAGIC (recharge, soil store, groundwater store), then calibrates in stages by DDS: volume and
+# MAGIC Twelve screened catchments, spread through the baseflow index, each run twice through
+# MAGIC the protocol the bulk run will use, with seeds 1 and 2: the structure chosen on the
+# MAGIC record (recharge, soil store, groundwater store), then stages by DDS: volume and
 # MAGIC baseflow on 6-hour steps, fast response, a Box-Cox polish, and the largest events. The
-# MAGIC rainfall factor is free within 0.8 to 1.2, and the evaporation is Hydro-PE. Seed 2
-# MAGIC calibrates the same structure from fresh starts.
+# MAGIC rainfall factor is fixed at 1 and the evaporation is Hydro-PE; rain bias shows in each
+# MAGIC catchment's water balance (`loss_over_pet`).
 # MAGIC
 # MAGIC - **Structures**: what each catchment chose, with its validation NSE and runoff ratio. A
 # MAGIC   runoff ratio far from the others, or above 1, points to the data, not the model.
-# MAGIC - **Seed test**: do two seeds give the same parameters (within 5% of each range) and
-# MAGIC   score (within 0.01 NSE)? The two surface stores are compared as a sorted pair, since
-# MAGIC   swapping them gives the same flow. `kb_share` and `widest_without_kb` show whether the
-# MAGIC   groundwater store alone is undetermined.
+# MAGIC - **Seed test**: does the protocol choose the same structure twice
+# MAGIC   (`same_structure`), and give the same parameters (within 5% of each range) and score
+# MAGIC   (within 0.01 NSE)? The two surface stores are compared as a sorted pair, since swapping
+# MAGIC   them gives the same flow. `apart` lists the parameters left apart.
+# MAGIC - **Snow arm**: catchments with at least 5% of precipitation as snow, run again with PACK
+# MAGIC   turning precipitation and the day's temperature into rain and melt.
 # MAGIC - **Groundwater arm**: up to six aquifer-dominated catchments (those screened out for
-# MAGIC   aquifers or groundwater losses), each calibrated three ways with the rainfall factor
-# MAGIC   fixed at 1: the chosen structure, with underflow, and with constant abstraction, two
-# MAGIC   seeds each. The extension earns its place where it scores clearly higher and its seeds
-# MAGIC   agree.
+# MAGIC   aquifers, groundwater losses or water from outside the catchment): the chosen
+# MAGIC   structure; the nearest one that takes the extension, where the chosen one does not;
+# MAGIC   that with underflow; with constant abstraction; and, where the runoff ratio is above
+# MAGIC   0.9, with springs bringing water in. Two seeds each. The extension earns its place
+# MAGIC   where it scores clearly higher and its seeds agree.
 # MAGIC - **Runtime**: minutes per catchment, and the hours the bulk run will take.
 # MAGIC
 # MAGIC Run `01_camels_prepare` first. The test windows are not scored; they are kept for the
@@ -135,8 +138,13 @@ show(seed_test, "No catchment finished both seeds.")
 
 # COMMAND ----------
 
-cat("Groundwater arm: the chosen structure, with underflow, and with abstraction\n")
+cat("Groundwater arm: chosen, compatible, underflow, abstraction and import\n")
 show(if (exists("groundwater")) groundwater, "No groundwater arm was run.")
+
+# COMMAND ----------
+
+cat("Snow arm: the main protocol against the same with PACK\n")
+show(if (exists("snow")) snow, "No catchment reached the snow share for the snow arm.")
 
 # COMMAND ----------
 
