@@ -82,10 +82,15 @@ camels:
   pet: pet_hydrope              # daily evaporation: pet_chess, peti_chess, pet_hydrope or
                                 # peti_hydrope (with interception)
   temperature: temperature_chess   # or temperature_haduk
-  min_hourly_complete: 80.0     # screening: hourly flow at least this complete, per cent
-  max_frac_snow: 0.15           # share of precipitation as snow
-  max_high_perm: 50.0           # per cent of the catchment on highly productive aquifers
+  # Screening: left out
+  min_hourly_complete: 80.0     # hourly flow at least this complete, per cent
+  max_frac_snow: 0.25           # share of precipitation as snow
   max_reservoir_capacity: 0.2   # reservoir capacity over mean annual runoff
-  max_bfi: 0.85                 # baseflow index above this with a runoff ratio under
-  min_runoff_ratio: 0.35        # min_runoff_ratio: groundwater lost unseen; left out
-  max_runoff_ratio: 1.0         # more flow than rain: water from outside; left out
+  max_urban: 30.0               # urban area, per cent
+  max_runoff_ratio: 2.0         # more flow than rain beyond what springs can bring in
+  # Treatment of the rest (screening.csv's treatment and pack columns)
+  pack_frac_snow: 0.05          # PACK ahead of the PDM from this snow share
+  max_high_perm: 50.0           # groundwater-fed: over this per cent on productive aquifers,
+  groundwater_bfi: 0.65         # or a baseflow index of at least this
+  losing_runoff_ratio: 0.35     # groundwater-fed and under this runoff ratio: abstraction
+  rain_low_runoff_ratio: 0.95   # not groundwater-fed and at least this: free the rain factor

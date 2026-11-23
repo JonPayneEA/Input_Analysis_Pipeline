@@ -138,33 +138,44 @@ def test_screening_rules(tmp_path):
     att = write_camels(tmp_path)
     rows = {
         "A": BASE,                                                 # suitable
-        "B": {**BASE, "frac_snow": 0.3},                           # snow 0.3 > 0.15
+        "B": {**BASE, "frac_snow": 0.3},                           # snow 0.3 > 0.25
         "C": {**BASE, "hourly_flow_perc_complete": 50.0},          # 50% < 80%
-        "D": {**BASE, "frac_high_perc": 30.0, "inter_high_perc": 25.0},  # 55% > 50%
+        "D": {**BASE, "frac_high_perc": 30.0, "inter_high_perc": 25.0},  # aquifer, ratio 0.5
         "E": {**BASE, "reservoir_normalised_upstream_capacity": 0.5,     # 0.5 > 0.2, and snow
-              "frac_snow": 0.2, "benchmark_catch": "N"},
+              "frac_snow": 0.27, "benchmark_catch": "N"},                # 0.27 > 0.25
         "F": {**BASE, "frac_snow": np.nan},                        # missing does not exclude
-        "G": {**BASE, "baseflow_index": 0.9, "runoff_ratio": 0.29},  # 0.9 > 0.85, 0.29 < 0.35
-        "H": {**BASE, "baseflow_index": 0.9, "runoff_ratio": 0.5},   # high BFI, water kept
-        "I": {**BASE, "runoff_ratio": 3.17},                         # 3.17 > 1: Costa Beck
-        "J": {**BASE, "runoff_ratio": 1.0},                          # exactly 1: kept
+        "G": {**BASE, "baseflow_index": 0.87, "runoff_ratio": 0.32},  # Cheriton: losing
+        "H": {**BASE, "baseflow_index": 0.81, "runoff_ratio": 1.44},  # Wey: gaining
+        "I": {**BASE, "baseflow_index": 0.71, "runoff_ratio": 3.04},  # Elmswell: 3.04 > 2
+        "J": {**BASE, "baseflow_index": 0.34, "runoff_ratio": 1.01},  # Lochy: rain too low
+        "K": {**BASE, "urban_perc_2015": 52.1},                    # Ravensbourne: 52 > 30
+        "L": {**BASE, "frac_snow": 0.10},                          # Findhorn: PACK
+        "M": {**BASE, "baseflow_index": 0.65, "runoff_ratio": 0.30},  # 0.65 is groundwater-fed
+        "N": {**BASE, "runoff_ratio": 0.95},                       # 0.95 is rain too low
     }
     write_attributes(att, rows)
     t = camels.attributes(tmp_path)
+    # Without the signatures, the water-balance rules cannot apply
     s = camels.screening(t["descriptors"], t["hydrometry"]).set_index("gauge_id")
-    assert s["use"].to_dict() == {"A": True, "B": False, "C": False, "D": False, "E": False,
-                                  "F": True, "G": True, "H": True, "I": True, "J": True}
-    # With the signatures, the chalk-like catchment losing its water is left out
+    out = {"B", "C", "E", "K"}
+    assert s["use"].to_dict() == {g: g not in out for g in rows}
+    assert set(s["treatment"]) == {"standard"}
     s = camels.screening(t["descriptors"], t["hydrometry"], signatures=t["signatures"])
     s = s.set_index("gauge_id")
-    assert s.at["G", "reasons"] == "groundwater losses"
-    assert s.at["I", "reasons"] == "water from outside the catchment"
-    assert bool(s.at["J", "use"])
-    assert bool(s.at["H", "use"]) and bool(s.at["A", "use"])
+    assert s["use"].to_dict() == {g: g not in out | {"I"} for g in rows}
     assert s.at["B", "reasons"] == "snow"
     assert s.at["C", "reasons"] == "hourly record incomplete"
-    assert s.at["D", "high_perm_perc"] == 55.0
     assert s.at["E", "reasons"] == "snow; reservoirs"
+    assert s.at["I", "reasons"] == "water from outside the catchment"
+    assert s.at["K", "reasons"] == "urban"
+    assert s["treatment"].to_dict() == {
+        "A": "standard", "B": "standard", "C": "standard",
+        "D": "standard",      # on aquifers, but its runoff ratio of 0.5 neither loses nor gains
+        "E": "standard", "F": "standard", "G": "abstraction", "H": "import",
+        "I": "import",        # left out all the same, by the runoff ratio over 2
+        "J": "free_fc", "K": "standard", "L": "standard", "M": "abstraction", "N": "free_fc"}
+    assert s["pack"][s["pack"]].index.tolist() == ["B", "E", "L"]   # snow share 0.05 or more
+    assert s.at["D", "high_perm_perc"] == 55.0
     assert bool(s.at["A", "benchmark"]) and not bool(s.at["E", "benchmark"])
 
 

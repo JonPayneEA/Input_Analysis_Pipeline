@@ -47,12 +47,15 @@ DEFAULTS = {
                                        # pet_hydrope or peti_hydrope (i: with interception)
     "temperature": "temperature_chess",  # or temperature_haduk
     "min_hourly_complete": 80.0,       # hourly flow record at least this complete, per cent
-    "max_frac_snow": 0.15,             # share of precipitation falling as snow
-    "max_high_perm": 50.0,             # area on highly productive aquifers, per cent
+    "max_frac_snow": 0.25,             # share of precipitation falling as snow; above it, out
+    "pack_frac_snow": 0.05,            # from this share, PACK runs ahead of the PDM
     "max_reservoir_capacity": 0.2,     # reservoir capacity over mean annual runoff volume
-    "max_bfi": 0.85,                   # with a runoff ratio under min_runoff_ratio: groundwater
-    "min_runoff_ratio": 0.35,          # leaving the catchment unseen (underflow, abstraction)
-    "max_runoff_ratio": 1.0,           # more flow than rain: water from outside the catchment
+    "max_urban": 30.0,                 # urban area, per cent; above it, out
+    "max_runoff_ratio": 2.0,           # more flow than rain beyond what springs can bring in
+    "max_high_perm": 50.0,             # area on highly productive aquifers, per cent: above
+    "groundwater_bfi": 0.65,           # it, or at this baseflow index, groundwater-fed
+    "losing_runoff_ratio": 0.35,       # groundwater-fed under this runoff ratio: abstraction
+    "rain_low_runoff_ratio": 0.95,     # not groundwater-fed from this runoff ratio: free fc
 }
 
 DESCRIPTOR_TABLES = ("topographic", "climatic", "soil", "hydrogeology", "landcover",
@@ -186,17 +189,28 @@ def _flagged(values):
 
 
 def screening(desc, hydrometry, cfg=None, signatures=None):
-    """Which catchments suit a PDM calibration, with the reasons for leaving any out: an
-    hourly flow record less complete than `min_hourly_complete`; snow above `max_frac_snow`;
-    more than `max_high_perm` per cent on highly productive aquifers (chalk and the like,
-    which need the groundwater extension); reservoir capacity above `max_reservoir_capacity`
-    of the mean annual runoff; and, given the signatures, groundwater losses: a baseflow index
-    above `max_bfi` with a runoff ratio under `min_runoff_ratio`, the mark of groundwater
-    leaving the catchment unseen, by underflow or abstraction; and a runoff ratio above
-    `max_runoff_ratio`, more flow than the rain supplies: water from outside the catchment,
-    such as springs fed from a neighbouring aquifer. The signatures choose
-    catchments only; they go into no model. The CAMELS benchmark flag (near-natural
-    catchments) is shown, not required. Missing values do not exclude."""
+    """Which catchments suit a PDM calibration, how each is to be calibrated, and the reasons
+    for leaving any out.
+
+    Left out: an hourly flow record less complete than `min_hourly_complete`; snow above
+    `max_frac_snow`; reservoir capacity above `max_reservoir_capacity` of the mean annual
+    runoff; more than `max_urban` per cent urban (sewers and culverts the PDM does not
+    represent); and, given the signatures, a runoff ratio above `max_runoff_ratio`: more
+    water than the groundwater extension can bring in.
+
+    `treatment` says how a kept catchment is calibrated, from its water balance. A catchment
+    is groundwater-fed with a baseflow index of at least `groundwater_bfi`, or more than
+    `max_high_perm` per cent on highly productive aquifers. Groundwater-fed and losing water
+    (runoff ratio under `losing_runoff_ratio`): `abstraction`, the groundwater extension with
+    an abstraction term. Groundwater-fed and gaining (runoff ratio above 1): `import`, springs
+    free to bring water in. Not groundwater-fed with a runoff ratio of `rain_low_runoff_ratio`
+    or more: `free_fc`, the rain is likely too low (gauge undercatch in the uplands), so the
+    rainfall factor is freed. Otherwise `standard`. `pack` marks a snow share of at least
+    `pack_frac_snow`, for PACK ahead of the PDM.
+
+    The signatures choose catchments and treatments only; they go into no model. The CAMELS
+    benchmark flag (near-natural catchments) is shown, not required. Missing values do not
+    exclude, and give `standard`."""
     st = settings(cfg)
     t = desc.merge(hydrometry, on="gauge_id", how="left")
     if signatures is not None:
@@ -204,21 +218,25 @@ def screening(desc, hydrometry, cfg=None, signatures=None):
         t = t.merge(signatures[keep], on="gauge_id", how="left")
     missing = pd.Series(np.nan, index=t.index)
     high = t.get("frac_high_perc", 0).fillna(0) + t.get("inter_high_perc", 0).fillna(0)
+    ratio = t.get("runoff_ratio", missing)
     rules = {
         "hourly record incomplete": t["hourly_flow_perc_complete"] < st["min_hourly_complete"],
         "snow": t["frac_snow"] > st["max_frac_snow"],
-        "highly productive aquifer": high > st["max_high_perm"],
         "reservoirs": t.get("reservoir_normalised_upstream_capacity",
                             missing) > st["max_reservoir_capacity"],
-        "groundwater losses": (t.get("baseflow_index", missing) > st["max_bfi"])
-        & (t.get("runoff_ratio", missing) < st["min_runoff_ratio"]),
-        "water from outside the catchment": t.get("runoff_ratio", missing)
-        > st["max_runoff_ratio"],
+        "urban": t.get("urban_perc_2015", missing) > st["max_urban"],
+        "water from outside the catchment": ratio > st["max_runoff_ratio"],
     }
     reasons = pd.Series([""] * len(t), index=t.index)
     for name, hit in rules.items():
         hit = hit.fillna(False)
         reasons[hit] = reasons[hit].where(reasons[hit] == "", reasons[hit] + "; ") + name
+    groundwater = ((t.get("baseflow_index", missing) >= st["groundwater_bfi"]).fillna(False)
+                   | (high > st["max_high_perm"]))
+    treatment = pd.Series(["standard"] * len(t), index=t.index)
+    treatment[(groundwater & (ratio < st["losing_runoff_ratio"])).fillna(False)] = "abstraction"
+    treatment[(groundwater & (ratio > 1)).fillna(False)] = "import"
+    treatment[(~groundwater & (ratio >= st["rain_low_runoff_ratio"])).fillna(False)] = "free_fc"
     out = pd.DataFrame({
         "gauge_id": t["gauge_id"],
         "gauge_name": t.get("gauge_name"),
@@ -227,8 +245,13 @@ def screening(desc, hydrometry, cfg=None, signatures=None):
         "hourly_complete_perc": t["hourly_flow_perc_complete"],
         "frac_snow": t["frac_snow"],
         "high_perm_perc": high,
+        "urban_perc": t.get("urban_perc_2015", missing),
+        "baseflow_index": t.get("baseflow_index", missing),
+        "runoff_ratio": ratio,
         "use": reasons == "",
         "reasons": reasons,
+        "treatment": treatment,
+        "pack": (t["frac_snow"] >= st["pack_frac_snow"]).fillna(False),
     })
     return out.sort_values("gauge_id").reset_index(drop=True)
 

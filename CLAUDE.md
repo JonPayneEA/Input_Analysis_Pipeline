@@ -11,10 +11,10 @@ exactly, so R reads the store with reach.io; any change to the layout must match
   Author, Created, Tier, Inputs, Outputs, Dependencies). Notebooks put
   `# Databricks notebook source` above it and separate cells with `# COMMAND ----------`.
 - Notebooks import only from `pipelines/`; logic goes there, with tests.
-- One exception, agreed: `jobs/camels_gb/02_camels_trial.r` is an R notebook for a personal
-  cluster, and `jobs/camels_gb/camels_trial.R` beside it is a copy of pdmS7's
-  `inst/scripts/camels_trial.R`. The calibration code and tests live in pdmS7; keep the two
-  copies of the script in step, and the notebook a thin wrapper.
+- One exception, agreed: `jobs/camels_gb/02_camels_trial.r` and `03_camels_bulk.r` are R
+  notebooks for a personal cluster, and `camels_trial.R` and `camels_bulk.R` beside them are
+  copies of pdmS7's `inst/scripts/` scripts. The calibration code and tests live in pdmS7;
+  keep each script's two copies in step, and the notebooks thin wrappers.
 - Times in UTC. Depths in mm per 15 minutes, as the EA supplies them.
 - The EA asks for one request at a time: no parallel requests to the Hydrology API.
 - No workspace names, catalog paths or credentials in committed files: they go in the config,
