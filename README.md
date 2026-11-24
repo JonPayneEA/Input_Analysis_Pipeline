@@ -26,6 +26,8 @@ writes, so the store reads back in R with `reach.io::read_bronze()`.
 | `jobs/camels_gb/camels_trial.R` | The trial script the notebook runs, a copy of pdmS7's |
 | `jobs/camels_gb/03_camels_bulk.r` | The bulk calibration of every screened catchment, in R |
 | `jobs/camels_gb/camels_bulk.R` | The bulk script the notebook runs, a copy of pdmS7's |
+| `jobs/single_site/calibrate_site.R` | The single-site starter, for training: a copy of pdmS7's |
+| `jobs/single_site/site.yml` | Its example settings, a copy of pdmS7's |
 | `pipelines/config.py` | Reading the configuration |
 | `config/config.example.yml` | The settings. Copy it; never commit the copy |
 | `tests/python/` | Tests, with a fake API so none touches the network |
@@ -281,6 +283,31 @@ in parallel worker processes, which load the installed pdmS7. The trial script,
 kept in step with it, since the calibration code and its tests live in pdmS7. The notebook finds
 the config as the Python jobs do, checks the packages, runs the script and shows the tables. Run
 `01_camels_prepare` first.
+
+## Calibrating one site: the starter
+
+`jobs/single_site/` holds the single-site starter, for training someone new to R and the PDM:
+`calibrate_site.R` and its example settings `site.yml`, copies of pdmS7's
+`inst/scripts/calibrate_site.R` and `inst/examples/site.yml`, kept in step with them. The code
+and its tests live in pdmS7. It runs in RStudio on a desktop, not on a cluster: it stops after
+the data checks and waits for the trainee to read them.
+
+It needs pdmS7 0.39.0 or later. Set up a folder for the site, or a practice one with made-up
+data that is ready to run, then run the starter from this repository:
+
+```r
+library(pdmS7)
+new_site("Practice", practice = TRUE)   # or new_site("My_River"), then add the data
+settings <- read_site_settings("Practice/site.yml")
+settings
+source("jobs/single_site/calibrate_site.R")
+```
+
+The first run checks the data and stops; set `settings$stop_after_checks <- FALSE` and run it
+again to calibrate. `summary.md` and `how_to_read_the_plots.md` in the output folder explain
+the results. pdmS7's README describes every step. Restricted data (H19, FEH SAAR, MOSES) stay
+off unrestricted volumes and out of this repository, as everywhere here: keep site folders
+outside the Git folder.
 
 ## Testing
 
