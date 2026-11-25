@@ -312,12 +312,12 @@ outside the Git folder.
 
 ### Which rain series to use
 
-`jobs/single_site/compare_rain.R`, a copy of pdmS7's `inst/scripts/compare_rain.R`, ranks
-several rain series (Thiessen, multiquadric, single gauges) against one flow record from the
-data alone: the water balance, double-mass curves, how closely the river follows each series
+`jobs/single_site/compare_rain.R`, a copy of pdmS7's `inst/scripts/compare_rain.R`, builds
+catchment rainfall from the rain gauges (Thiessen weights, equal weights, multiquadric) and ranks
+every series against one flow record from the data alone: the water balance, double-mass curves, how closely the river follows each series
 and at what lag, and storms each missed. Copy it out of the Git folder, fill in the catchment
 area, the time step and the files at the top, and run it; `summary.md` in its output folder
-gives the ranking and the warnings. It needs pdmS7 0.40.0 or later.
+gives the ranking and the warnings. It needs pdmS7 0.41.0 or later.
 
 ## Testing
 
