@@ -319,7 +319,10 @@ double-mass curves, how closely the river follows each series and at what lag, a
 missed. Copy it out of the Git folder, fill in the catchment area, the time step, the gauges
 and the Thiessen weights at the top, and run it; `summary.md` in its output folder gives the
 ranking and the warnings. Given each gauge's WISKI ID it downloads the gauges from the
-Hydrology API itself, with reach.io, one request at a time. It needs pdmS7 0.41.0 or later.
+Hydrology API itself, with reach.io, one request at a time. Given a folder of H19 radar files
+it checks their layouts, adds the radar over the catchment, and sets the radar over each gauge
+against the gauge. H19 is restricted: run it with the output folder on restricted storage. It
+needs pdmS7 0.42.0 or later.
 
 ## Testing
 
