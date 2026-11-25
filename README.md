@@ -29,6 +29,7 @@ writes, so the store reads back in R with `reach.io::read_bronze()`.
 | `jobs/single_site/calibrate_site.R` | The single-site starter, for training: a copy of pdmS7's |
 | `jobs/single_site/site.yml` | Its example settings, a copy of pdmS7's |
 | `jobs/single_site/compare_rain.R` | Which rain series best explains the flow, a copy of pdmS7's |
+| `jobs/single_site/check_h19.R` | A quick look at H19 at a point and over a polygon, a copy of pdmS7's |
 | `pipelines/config.py` | Reading the configuration |
 | `config/config.example.yml` | The settings. Copy it; never commit the copy |
 | `tests/python/` | Tests, with a fake API so none touches the network |
@@ -323,6 +324,10 @@ Hydrology API itself, with reach.io, one request at a time. Given a folder of H1
 it checks their layouts, adds the radar over the catchment, and sets the radar over each gauge
 against the gauge. H19 is restricted: run it with the output folder on restricted storage. It
 needs pdmS7 0.42.0 or later.
+
+`jobs/single_site/check_h19.R`, a copy of pdmS7's `inst/scripts/check_h19.R`, looks at H19 on
+its own: the files' layouts, the rain at a point and over a polygon through time, and a map of
+the total. It needs pdmS7 0.42.0 or later, and the same restricted storage.
 
 ## Testing
 
