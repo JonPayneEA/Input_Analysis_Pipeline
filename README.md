@@ -317,17 +317,21 @@ outside the Git folder.
 catchment rainfall from the rain gauges (Thiessen weights, equal weights, multiquadric) and
 ranks every series against one flow record from the data alone: the water balance,
 double-mass curves, how closely the river follows each series and at what lag, and storms each
-missed. Copy it out of the Git folder, fill in the catchment area, the time step, the gauges
-and the Thiessen weights at the top, and run it; `summary.md` in its output folder gives the
-ranking and the warnings. Given each gauge's WISKI ID it downloads the gauges from the
-Hydrology API itself, with reach.io, one request at a time. Given a folder of H19 radar files
-it checks their layouts, adds the radar over the catchment, and sets the radar over each gauge
-against the gauge. H19 is restricted: run it with the output folder on restricted storage. It
-needs pdmS7 0.42.2 or later.
+missed. Copy it out of the Git folder, fill in the catchment area, the time step, the flow and
+evaporation files and the catchment's shapefile at the top, and run it. The first run searches
+the Hydrology API, with reach.io, for the 15-minute rain gauges around the catchment's
+centroid, lists them in `nearby_gauges.csv` with a map, and stops. Put the WISKI IDs chosen in
+`gauge_ids` and run again: it downloads them, one request at a time, and `summary.md` in its
+output folder gives the ranking and the warnings. Without Thiessen weights it works them out
+from the gauges' positions and the boundary. Given a folder of H19 radar files it checks their
+layouts, adds the radar over the catchment, and sets the radar over each gauge against the
+gauge. H19 is restricted: run it with the output folder on restricted storage. It needs pdmS7
+0.43.0 or later, and sf.
 
 `jobs/single_site/check_h19.R`, a copy of pdmS7's `inst/scripts/check_h19.R`, looks at H19 on
-its own: the files' layouts, the rain at a point and over a polygon through time, and a map of
-the total. It needs pdmS7 0.42.2 or later, and the same restricted storage.
+its own: the files' layouts, the rain at a point and over a polygon (a shapefile or a CSV)
+through time, and a map of the total. It needs pdmS7 0.43.0 or later, and the same restricted
+storage.
 
 ## Testing
 
