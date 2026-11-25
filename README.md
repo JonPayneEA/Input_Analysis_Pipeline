@@ -323,11 +323,11 @@ ranking and the warnings. Given each gauge's WISKI ID it downloads the gauges fr
 Hydrology API itself, with reach.io, one request at a time. Given a folder of H19 radar files
 it checks their layouts, adds the radar over the catchment, and sets the radar over each gauge
 against the gauge. H19 is restricted: run it with the output folder on restricted storage. It
-needs pdmS7 0.42.0 or later.
+needs pdmS7 0.42.2 or later.
 
 `jobs/single_site/check_h19.R`, a copy of pdmS7's `inst/scripts/check_h19.R`, looks at H19 on
 its own: the files' layouts, the rain at a point and over a polygon through time, and a map of
-the total. It needs pdmS7 0.42.0 or later, and the same restricted storage.
+the total. It needs pdmS7 0.42.2 or later, and the same restricted storage.
 
 ## Testing
 
