@@ -28,6 +28,7 @@ writes, so the store reads back in R with `reach.io::read_bronze()`.
 | `jobs/camels_gb/camels_bulk.R` | The bulk script the notebook runs, a copy of pdmS7's |
 | `jobs/single_site/calibrate_site.R` | The single-site starter, for training: a copy of pdmS7's |
 | `jobs/single_site/site.yml` | Its example settings, a copy of pdmS7's |
+| `jobs/single_site/compare_rain.R` | Which rain series best explains the flow, a copy of pdmS7's |
 | `pipelines/config.py` | Reading the configuration |
 | `config/config.example.yml` | The settings. Copy it; never commit the copy |
 | `tests/python/` | Tests, with a fake API so none touches the network |
@@ -308,6 +309,15 @@ again to calibrate. `summary.md` and `how_to_read_the_plots.md` in the output fo
 the results. pdmS7's README describes every step. Restricted data (H19, FEH SAAR, MOSES) stay
 off unrestricted volumes and out of this repository, as everywhere here: keep site folders
 outside the Git folder.
+
+### Which rain series to use
+
+`jobs/single_site/compare_rain.R`, a copy of pdmS7's `inst/scripts/compare_rain.R`, ranks
+several rain series (Thiessen, multiquadric, single gauges) against one flow record from the
+data alone: the water balance, double-mass curves, how closely the river follows each series
+and at what lag, and storms each missed. Copy it out of the Git folder, fill in the catchment
+area, the time step and the files at the top, and run it; `summary.md` in its output folder
+gives the ranking and the warnings. It needs pdmS7 0.40.0 or later.
 
 ## Testing
 
