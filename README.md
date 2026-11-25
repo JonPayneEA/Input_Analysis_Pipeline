@@ -318,7 +318,8 @@ ranks every series against one flow record from the data alone: the water balanc
 double-mass curves, how closely the river follows each series and at what lag, and storms each
 missed. Copy it out of the Git folder, fill in the catchment area, the time step, the gauges
 and the Thiessen weights at the top, and run it; `summary.md` in its output folder gives the
-ranking and the warnings. It needs pdmS7 0.41.0 or later.
+ranking and the warnings. Given each gauge's WISKI ID it downloads the gauges from the
+Hydrology API itself, with reach.io, one request at a time. It needs pdmS7 0.41.0 or later.
 
 ## Testing
 
