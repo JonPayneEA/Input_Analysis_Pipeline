@@ -322,7 +322,7 @@ files and the catchment's shapefile at the top, and run it. The first run search
 Hydrology API, with reach.io, for the 15-minute rain gauges around the catchment's centroid,
 lists them in `nearby_gauges.csv` with a map, and stops. Put the WISKI IDs chosen in
 `gauge_ids` and run again: it downloads them, one request at a time, and `report.html` (every
-plot, explained, with the tables) and `summary.md` in its output folder gives the ranking and
+plot, explained, with the tables) and `summary.md` in its output folder give the ranking and
 the warnings. Without Thiessen weights it works them out from the gauges' positions and the
 boundary. Its period_from and period_to cut every series to one period. Given the processed
 yearly H19 extracts (`Processed_Annual`, from the ProcessingNetCDF scripts) and the catchment's
