@@ -323,7 +323,7 @@ the Hydrology API, with reach.io, for the 15-minute rain gauges around the catch
 centroid, lists them in `nearby_gauges.csv` with a map, and stops. Put the WISKI IDs chosen in
 `gauge_ids` and run again: it downloads them, one request at a time, and `summary.md` in its
 output folder gives the ranking and the warnings. Without Thiessen weights it works them out
-from the gauges' positions and the boundary. Given the processed yearly H19 extracts
+from the gauges' positions and the boundary. Its period_from and period_to cut every series to one period. Given the processed yearly H19 extracts
 (`Processed_Annual`, from the ProcessingNetCDF scripts) and the catchment's polygon ID in
 Hyrad, it adds the radar over the catchment in seconds. Given the folder of daily H19 files it
 checks their layouts and sets the radar over each gauge against the gauge, which takes hours
