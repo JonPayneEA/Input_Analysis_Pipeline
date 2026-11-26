@@ -1057,6 +1057,19 @@ lines <- c(
   sprintf("%.1f years of %s data; %d rain series; %d floods compared.", years,
           if (step_hours < 1) sprintf("%g-minute", step_hours * 60) else
             sprintf("%g-hour", step_hours), length(names_r), nrow(floods)),
+  # The balance and double-mass checks use only the steps where every series has a value, so
+  # a short series narrows them all.
+  if (mean(common) < 0.8) {
+    short <- names(missing_pct)[missing_pct > 20]
+    c("", sprintf(paste("**Only %.0f%% of the record (%.1f years) has every series.** The water",
+                        "balance and double-mass checks use those steps alone; the flood checks",
+                        "judge each series on the floods it covers. The shortest: %s. Leave",
+                        "it out for a fair comparison over the whole record, or keep it to",
+                        "compare everything over its period."),
+                  100 * mean(common), years * mean(common),
+                  paste(sprintf("%s (%.0f%% missing)", short, missing_pct[short]),
+                        collapse = ", ")), "")
+  },
   "Judged from the data alone, before any model. How to read each plot: the HOW TO READ",
   "notes in compare_rain.R, beside the line that draws it.", "",
   sprintf("**Best by the data: %s.** The ranking, best first (mean rank over twelve",
