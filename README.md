@@ -329,7 +329,7 @@ yearly H19 extracts (`Processed_Annual`, from the ProcessingNetCDF scripts) and 
 polygon ID in Hyrad, it adds the radar over the catchment in seconds. Given the folder of daily
 H19 files it checks their layouts and sets the radar over each gauge against the gauge, which
 takes hours over the network. H19 is restricted: run it with the output folder on restricted
-storage. It needs pdmS7 0.50.0 or later, and sf; reach.rate to check the flow record from stage.
+storage. It needs pdmS7 0.51.0 or later, and sf; reach.rate to check the flow record from stage.
 
 `jobs/single_site/check_h19.R`, a copy of pdmS7's `inst/scripts/check_h19.R`, looks at H19 on
 its own: the files' layouts, the rain at a point and over a polygon (a shapefile or a CSV)
