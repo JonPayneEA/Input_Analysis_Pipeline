@@ -15,9 +15,10 @@ exactly, so R reads the store with reach.io; any change to the layout must match
   notebooks for a personal cluster, and `camels_trial.R` and `camels_bulk.R` beside them are
   copies of pdmS7's `inst/scripts/` scripts. The calibration code and tests live in pdmS7;
   keep each script's two copies in step, and the notebooks thin wrappers. The same holds for
-  `jobs/single_site/`: `calibrate_site.R`, `compare_rain.R`, `check_h19.R` and `site.yml` are
-  copies of pdmS7's `inst/scripts/calibrate_site.R`, `inst/scripts/compare_rain.R`,
-  `inst/scripts/check_h19.R` and `inst/examples/site.yml`, run from RStudio, not a cluster.
+  `jobs/single_site/`: `calibrate_site.R`, `compare_rain.R`, `check_h19.R`, `site.yml` and
+  `rain.yml` are copies of pdmS7's `inst/scripts/calibrate_site.R`,
+  `inst/scripts/compare_rain.R`, `inst/scripts/check_h19.R`, `inst/examples/site.yml` and
+  `inst/examples/rain.yml`, run from RStudio, not a cluster.
 - Times in UTC. Depths in mm per 15 minutes, as the EA supplies them.
 - The EA asks for one request at a time: no parallel requests to the Hydrology API.
 - No workspace names, catalog paths or credentials in committed files: they go in the config,

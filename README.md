@@ -29,6 +29,7 @@ writes, so the store reads back in R with `reach.io::read_bronze()`.
 | `jobs/single_site/calibrate_site.R` | The single-site starter, for training: a copy of pdmS7's |
 | `jobs/single_site/site.yml` | Its example settings, a copy of pdmS7's |
 | `jobs/single_site/compare_rain.R` | Which rain series best explains the flow, a copy of pdmS7's |
+| `jobs/single_site/rain.yml` | Its settings template, a copy of pdmS7's |
 | `jobs/single_site/check_h19.R` | A quick look at H19 at a point and over a polygon, a copy of pdmS7's |
 | `pipelines/config.py` | Reading the configuration |
 | `config/config.example.yml` | The settings. Copy it; never commit the copy |
@@ -316,9 +317,12 @@ outside the Git folder.
 `jobs/single_site/compare_rain.R`, a copy of pdmS7's `inst/scripts/compare_rain.R`, builds
 catchment rainfall from the rain gauges (Thiessen weights, equal weights, multiquadric) and
 ranks every series against one flow record from the data alone: the water balance, double-mass
-curves, how closely the river follows each series and at what lag, and storms each missed. Copy
-it out of the Git folder, fill in the catchment area, the time step, the flow and evaporation
-files and the catchment's shapefile at the top, and run it. The first run searches the
+curves, how closely the river follows each series and at what lag, and storms each missed. Its
+settings live in `jobs/single_site/rain.yml`, a copy of pdmS7's `inst/examples/rain.yml`, not
+in the script: copy the YAML beside the site's data, out of the Git folder, fill in the
+catchment area, the time step, the flow and evaporation files and the catchment's shapefile,
+and run the script from that folder (`read_rain_settings("rain.yml")` first shows the
+settings, checked, and lets you change them in R). The first run searches the
 Hydrology API, with reach.io, for the 15-minute rain gauges around the catchment's centroid,
 lists them in `nearby_gauges.csv` with a map, and stops. Put the WISKI IDs chosen in
 `gauge_ids` and run again: it downloads them, one request at a time, and `report.html` (every
@@ -329,7 +333,7 @@ yearly H19 extracts (`Processed_Annual`, from the ProcessingNetCDF scripts) and 
 polygon ID in Hyrad, it adds the radar over the catchment in seconds. Given the folder of daily
 H19 files it checks their layouts and sets the radar over each gauge against the gauge, which
 takes hours over the network. H19 is restricted: run it with the output folder on restricted
-storage. It needs pdmS7 0.52.0 or later, and sf; reach.rate to check the flow record from stage.
+storage. It needs pdmS7 0.53.0 or later, and sf; reach.rate to check the flow record from stage.
 
 `jobs/single_site/check_h19.R`, a copy of pdmS7's `inst/scripts/check_h19.R`, looks at H19 on
 its own: the files' layouts, the rain at a point and over a polygon (a shapefile or a CSV)
